@@ -1,0 +1,76 @@
+# VeloScroll daemon configuration
+# ================================
+# Copy this file to /etc/veloscroll/config.ini and uncomment the keys you want to override (remove the ;)
+# sudo mkdir -p /etc/veloscroll && sudo cp /opt/veloscroll/config.ini.example /etc/veloscroll/config.ini
+#
+# The daemon picks up changes to this file automatically within ~2 s — no restart needed.
+
+# Precedence, per key: a non-empty value here overrides the default at the top of
+# /opt/veloscroll/veloscroll.py; a missing or empty key falls back to that code default.
+# Unknown keys are ignored with a warning line in `journalctl -u veloscroll`.
+# A malformed value is rejected: at startup the daemon exits listing all errors; while running,
+# the change is skipped (one "config reload rejected" log line) and current values stay in effect.
+
+[veloscroll]
+
+; --- feel ----------------------------------------------------------------------
+
+; DPI — your mouse's current DPI (counts/inch), not its maximum.
+DPI = 1600
+; DEADZONE_IN — inches from the press point below which nothing scrolls.
+DEADZONE_IN = 0.05
+; FULL_IN — inches from the press point at which MAX_RATE is reached (must be > DEADZONE_IN).
+FULL_IN = 2.5
+; MAX_RATE — notches per second at FULL_IN and beyond (your top scrolling speed).
+MAX_RATE = 130.0
+; MIN_RATE — notches per second just past the deadzone (the floor of the ramp, keep > 0).
+MIN_RATE = 4.0
+; CURVE — shape of the speed ramp: >1 gentle near the start, =1 linear, <1 steep near the start.
+CURVE = 0.5
+; OUT_SMOOTH — 0..1 how quickly the rate follows the target (lower = smoother, higher = snappier).
+OUT_SMOOTH = 0.8
+; INVERT — true/false: flip scroll direction (set true if your DE has "natural scrolling" enabled).
+INVERT = False
+; TICK — ticker loop period in seconds (0.004 s ≈ 250 Hz); not a feel setting, only lower it if scrolling still looks steppy (more CPU).
+TICK = 0.004
+
+; --- horizontal ramp overrides (optional) ---------------------------------------
+; Per-axis variants of the ramp above, used only while SCROLL_BTN_H is held. Each key falls back to its vertical counterpart when unset or `none`, so you can override just one (e.g. a shorter horizontal deadzone).
+;DEADZONE_IN_H = 0.1
+;FULL_IN_H = 3.0
+;MIN_RATE_H = 8.0
+;MAX_RATE_H = 90.0
+;CURVE_H = 1.2
+
+; --- logging -------------------------------------------------------------------
+
+; LOG_LEVEL — what the daemon writes to its log (`journalctl -u veloscroll`). Integer 0..3, higher = more verbose; hot-reloaded like every other key.
+;   0 = errors only (device busy, permission problems, lost device)
+;   1 = + normal events (grabbed <device>, no matching device yet, config loaded at startup)
+;   2 = + config detail (unknown keys/sections ignored, reload rejected, config reloaded old->new, virtual mouse ID changes) — default
+;   3 = + debug (e.g. a device being released because the config no longer selects it)
+; Note: lowering LOG_LEVEL below 2 also hides the "config reloaded:" confirmation line itself.
+LOG_LEVEL = 2
+
+; --- latency -------------------------------------------------------------------
+
+; LATENCY_LOG — true/false: collect per-event timing and log one summary line per second, plus a computed
+; latency model on startup/config change. Debugging only; lines are independent of LOG_LEVEL.
+;LATENCY_LOG = True
+
+; --- device selection ----------------------------------------------------------
+
+; NAME_MATCH — fallback selector (used only when DEVICE_MATCH is none): case-insensitive substring of your mouse's name.
+;NAME_MATCH = Fallback
+
+;DEVICE_MATCH — recommended precise selector that overrides NAME_MATCH. Accepted syntaxes:
+;DEVICE_MATCH = 0x46d, 0x4093        USB ID pair in hex (comma or whitespace separated)
+;DEVICE_MATCH = 1133 16531           the same pair in decimal
+;DEVICE_MATCH = /dev/input/by-id/usb-Logitech_G_Pro_X_Superlight_2-event-mouse    stable path string (two identical mice; pins the USB port)
+;DEVICE_MATCH = none                 fall back to NAME_MATCH
+;DEVICE_MATCH = 0x46d, 0x4093
+;SCROLL_BTN — key code of the button that enables veloscroll when held: evdev name or decimal code. `none` is not allowed.
+;SCROLL_BTN = BTN_SIDE
+;SCROLL_BTN_H — optional second hold button for HORIZONTAL velocity scrolling: same ramp, driven by mouse X movement
+;(emits REL_HWHEEL / REL_HWHEEL_HI_RES). evdev name or decimal code; `none` disables (default); must differ from SCROLL_BTN/DISABLED_BTN.
+;SCROLL_BTN_H = BTN_EXTRA

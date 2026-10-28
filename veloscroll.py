@@ -1,0 +1,803 @@
+#!/usr/bin/env python3
+
+# VeloScroll — hold-button velocity scrolling for Linux
+# Copyright (C) 2026 Lucas Tippelt
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Full license: https://www.gnu.org/licenses/gpl-3.0.html
+
+import configparser
+import errno
+import math
+import os
+import sys
+import threading
+import time
+import evdev
+from evdev import UInput, ecodes as e
+
+NAME_MATCH = "Fallback"             # fallback selector (used when DEVICE_MATCH is None): case-insensitive substring of the device name
+DEVICE_MATCH = 0x46d, 0x4093        # RECOMMENDED selector: overrides NAME_MATCH when set, so per-device pointer rules apply to the virtual mouse automatically. Use
+                                    #   a USB ID pair like (0x46d, 0xc084) — stable across reboots/ports (`ls -l /dev/input/by-id`, or see README), or
+                                    #   for two identical mice: a stable path string "/dev/input/by-id/usb-..." / ".../by-path/..." (port-pinned)
+SCROLL_BTN = e.BTN_SIDE             # the button that enables veloscroll when pressed
+DISABLED_BTN = None                 # a button that gets disabled
+                                    # [disabled-btn] optional feature: swallow one button so it does nothing.
+                                    # If you do NOT want a disabled button, set "none" here 
+SCROLL_BTN_H = None                 # optional second hold button for horizontal velocity scrolling; "none" disables the feature
+DPI = 1600                          # your mouse DPI
+DEADZONE_IN = 0.05                  # inches from the start point where nothing scrolls
+FULL_IN = 2.5                       # inches from the start at which MAX_RATE is reached
+MAX_RATE = 130.0                    # notches per second at FULL_IN and beyond
+MIN_RATE = 4.0                      # notches per second at the start (right above deadzone ends)
+CURVE = 0.5                         # >1 = gentle near the start, steeper further out; =1 linear; <1 = steeper near the start, gentler further out
+DEADZONE_IN_H = None                # horizontal variant of DEADZONE_IN (inches); None = fall back to the vertical value
+FULL_IN_H = None                    # horizontal variant of FULL_IN; None = fall back to the vertical value
+MIN_RATE_H = None                   # horizontal variant of MIN_RATE (notches/s); None = fall back to the vertical value
+MAX_RATE_H = None                   # horizontal variant of MAX_RATE; None = fall back to the vertical value
+CURVE_H = None                      # horizontal variant of CURVE; None = fall back to the vertical value
+OUT_SMOOTH = 0.8                    # 0..1 how quickly the rate follows the target (lower = smoother, higher = more responsive)
+INVERT = False
+TICK = 0.004                        # ticker loop period in seconds (0.004 s ≈ 250 Hz): how often the scroll rate is recomputed and events are emitted; lower = smoother but more CPU — not a feel setting
+LOG_LEVEL = 2                       # what the daemon logs: 0=errors only, 1=+events, 2=+config detail, 3=+debug
+LATENCY_LOG = False                 # true: log a computed latency model plus one measured per-second summary line (independent of LOG_LEVEL)
+DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
+VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
+MAX_BACKUPS = -1                    # veloscroll_seed.py only: max number of kcminputrc.bak-* backups to keep; -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup
+
+
+# --- config.ini layer ---------------------------------------------------------
+# The 21 daemon tunables above can be overridden in /etc/veloscroll/config.ini
+# (see config.ini.example). Per key, a non-empty .ini value wins over the code
+# default; a missing or empty key falls back to it. The supervisor re-reads the
+# file every ~2 s and applies changes live (edits to this script still need a restart).
+
+CONFIG_PATH = os.environ.get("VELOSCROLL_CONFIG", "/etc/veloscroll/config.ini")  # env override for tests / per-user setups
+DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCROLL_BTN_H",
+               "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
+               "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
+               "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG")
+_DEFAULTS = {k: globals()[k] for k in DAEMON_KEYS}   # the code defaults, captured before any .ini overlay; a key absent from the file always falls back to these
+
+
+class ConfigError(Exception):
+    """config.ini could not be read or parsed."""
+
+
+def _parse_ini_value(key, raw):
+    if key == "NAME_MATCH":
+        return raw
+    if key == "DEVICE_MATCH":
+        if raw.lower() == "none":
+            return None                       # fall back to NAME_MATCH
+        toks = [t for t in raw.replace(",", " ").split()]
+        pair = []
+        for t in toks:
+            try:
+                pair.append(int(t, 0))        # hex (0x46d) or decimal (1133)
+            except ValueError:
+                break
+        if len(pair) == 2 and len(toks) == 2:
+            return (pair[0], pair[1])
+        if "/" in raw and "," not in raw:     # stable path string, e.g. /dev/input/by-id/...
+            return raw
+        raise ConfigError(f"{key} in {CONFIG_PATH}: expected vendor product pair or path")
+    if key in ("SCROLL_BTN", "DISABLED_BTN", "SCROLL_BTN_H"):
+        if raw.lower() == "none":
+            if key == "SCROLL_BTN":
+                raise ConfigError(f"{key} in {CONFIG_PATH}: 'none' is not allowed")
+            return None                   # disables the feature (run() tolerates it)
+        sym = getattr(e, raw, None)           # ecodes symbol, e.g. BTN_SIDE
+        if isinstance(sym, int):
+            return sym
+        try:
+            return int(raw)                   # decimal code, e.g. 275
+        except ValueError:
+            raise ConfigError(f"{key} in {CONFIG_PATH}: expected an evdev button name (e.g. BTN_SIDE) or a decimal code (got {raw!r})")
+    if key in ("INVERT", "LATENCY_LOG"):
+        low = raw.lower()
+        if low in ("true", "yes", "on", "1"):
+            return True
+        if low in ("false", "no", "off", "0"):
+            return False
+        raise ConfigError(f"{key} in {CONFIG_PATH}: expected a boolean true/false/yes/no/on/off (got {raw!r})")
+    if key == "LOG_LEVEL":
+        try:
+            val = int(raw)
+        except ValueError:
+            raise ConfigError(f"{key} in {CONFIG_PATH}: expected an integer 0..3 (got {raw!r})")
+        if not 0 <= val <= 3:
+            raise ConfigError(f"{key} in {CONFIG_PATH}: must be in the range 0..3 (got {val})")
+        return val
+    if key in ("DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H"):
+        if raw.lower() == "none":
+            return None                   # unset -> fall back to the vertical value at runtime
+        try:
+            return float(raw)
+        except ValueError:
+            raise ConfigError(f"{key} in {CONFIG_PATH}: expected a number or none (got {raw!r})")
+    try:
+        return float(raw)                     # DPI, DEADZONE_IN, FULL_IN, MAX_RATE, MIN_RATE, CURVE, OUT_SMOOTH, TICK
+    except ValueError:
+        raise ConfigError(f"{key} in {CONFIG_PATH}: expected a number (got {raw!r})")
+
+
+def load_config():
+    """All 21 daemon keys: the code defaults overlaid with non-empty config.ini values.
+
+    Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
+    Bad syntax -> all errors collected and raised as one ConfigError."""
+    global _cfg_load_info
+    values = dict(_DEFAULTS)
+    _cfg_load_info = None
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return values
+    except OSError as exc:
+        raise ConfigError(f"cannot read {CONFIG_PATH}: {exc}") from exc
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.optionxform = str                      # keys are exact Python names (NAME_MATCH, ...)
+    try:
+        cp.read_string(text)
+    except configparser.Error as exc:
+        raise ConfigError(f"malformed INI in {CONFIG_PATH}: {exc}") from exc
+    for section in cp.sections():
+        if section != "veloscroll":
+            _log(2, f"config warning: unknown section [{section}] in {CONFIG_PATH} — ignored")
+    errors = []
+    n = 0
+    if cp.has_section("veloscroll"):
+        for key, raw in cp["veloscroll"].items():
+            if key not in DAEMON_KEYS:
+                _log(2, f"config warning: unknown key {key} in {CONFIG_PATH} — ignored")
+                continue
+            raw = raw.strip()
+            if not raw:                        # empty value -> code default applies
+                continue
+            try:
+                values[key] = _parse_ini_value(key, raw)
+            except ConfigError as exc:
+                errors.append(str(exc))
+                continue
+            n += 1
+    if errors:
+        raise ConfigError("; ".join(errors))
+    _cfg_load_info = (CONFIG_PATH, n)
+    return values
+
+
+def check_config(v):
+    """Validate a full values dict; returns a list of error messages (empty = OK)."""
+    def is_int(x):
+        return isinstance(x, int) and not isinstance(x, bool)
+
+    errors = []
+    if not v["DPI"] > 0:
+        errors.append(f"DPI must be > 0 (got {v['DPI']})")
+    if not v["MIN_RATE"] > 0:
+        errors.append(f"MIN_RATE must be > 0 (got {v['MIN_RATE']})")
+    if not v["MAX_RATE"] >= v["MIN_RATE"]:
+        errors.append(f"MAX_RATE must be >= MIN_RATE (got {v['MAX_RATE']} < {v['MIN_RATE']})")
+    if not v["DEADZONE_IN"] > 0:
+        errors.append(f"DEADZONE_IN must be > 0 (got {v['DEADZONE_IN']})")
+    elif not v["FULL_IN"] > v["DEADZONE_IN"]:
+        errors.append(f"FULL_IN must be greater than DEADZONE_IN (got {v['FULL_IN']} <= {v['DEADZONE_IN']})")
+    if not v["CURVE"] > 0:
+        errors.append(f"CURVE must be > 0 (got {v['CURVE']})")
+    # horizontal ramp variants: each None key falls back to its vertical counterpart, so cross-checks use effective values
+    if v["DEADZONE_IN_H"] is not None or v["FULL_IN_H"] is not None:
+        h_dz = v["DEADZONE_IN_H"] if v["DEADZONE_IN_H"] is not None else v["DEADZONE_IN"]
+        h_full = v["FULL_IN_H"] if v["FULL_IN_H"] is not None else v["FULL_IN"]
+        dz_name = "DEADZONE_IN_H" if v["DEADZONE_IN_H"] is not None else "DEADZONE_IN"
+        full_name = "FULL_IN_H" if v["FULL_IN_H"] is not None else "FULL_IN"
+        if not h_dz > 0:
+            errors.append(f"{dz_name} must be > 0 (got {h_dz})")
+        elif not h_full > h_dz:
+            errors.append(f"{full_name} must be greater than {dz_name} (got {h_full} <= {h_dz})")
+    if v["MIN_RATE_H"] is not None and not v["MIN_RATE_H"] > 0:
+        errors.append(f"MIN_RATE_H must be > 0 (got {v['MIN_RATE_H']})")
+    if v["MIN_RATE_H"] is not None or v["MAX_RATE_H"] is not None:
+        h_min = v["MIN_RATE_H"] if v["MIN_RATE_H"] is not None else v["MIN_RATE"]
+        h_max = v["MAX_RATE_H"] if v["MAX_RATE_H"] is not None else v["MAX_RATE"]
+        max_name = "MAX_RATE_H" if v["MAX_RATE_H"] is not None else "MAX_RATE"
+        min_name = "MIN_RATE_H" if v["MIN_RATE_H"] is not None else "MIN_RATE"
+        if not h_max >= h_min:
+            errors.append(f"{max_name} must be >= {min_name} (got {h_max} < {h_min})")
+    if v["CURVE_H"] is not None and not v["CURVE_H"] > 0:
+        errors.append(f"CURVE_H must be > 0 (got {v['CURVE_H']})")
+    if not 0 < v["OUT_SMOOTH"] <= 1:
+        errors.append(f"OUT_SMOOTH must be in the range (0, 1] (got {v['OUT_SMOOTH']})")
+    if not is_int(v["SCROLL_BTN"]):
+        errors.append(f"SCROLL_BTN must be an integer button code (got {v['SCROLL_BTN']!r})")
+    if v["DISABLED_BTN"] is not None and not is_int(v["DISABLED_BTN"]):
+        errors.append(f"DISABLED_BTN must be an integer button code or none (got {v['DISABLED_BTN']!r})")
+    if v["SCROLL_BTN_H"] is not None and not is_int(v["SCROLL_BTN_H"]):
+        errors.append(f"SCROLL_BTN_H must be an integer button code or none (got {v['SCROLL_BTN_H']!r})")
+    elif v["SCROLL_BTN_H"] == v["SCROLL_BTN"]:
+        errors.append("SCROLL_BTN_H and SCROLL_BTN must be different button codes")
+    elif v["DISABLED_BTN"] is not None and v["SCROLL_BTN_H"] == v["DISABLED_BTN"]:
+        errors.append("SCROLL_BTN_H and DISABLED_BTN must be different button codes")
+    dm = v["DEVICE_MATCH"]
+    valid_dm = (dm is None
+                or (isinstance(dm, tuple) and len(dm) == 2 and all(is_int(x) for x in dm))
+                or (isinstance(dm, str) and "/" in dm))
+    if not valid_dm:
+        errors.append(f"DEVICE_MATCH must be a (vendor, product) pair, a device path, or None (got {dm!r})")
+    if not isinstance(v["NAME_MATCH"], str):
+        errors.append(f"NAME_MATCH must be a string (got {v['NAME_MATCH']!r})")
+    elif dm is None and not v["NAME_MATCH"].strip():
+        errors.append("NAME_MATCH must be non-empty when DEVICE_MATCH is None")
+    if not (is_int(v["LOG_LEVEL"]) and 0 <= v["LOG_LEVEL"] <= 3):
+        errors.append(f"LOG_LEVEL must be an integer in the range 0..3 (got {v['LOG_LEVEL']!r})")
+    if not isinstance(v["LATENCY_LOG"], bool):
+        errors.append(f"LATENCY_LOG must be a boolean true/false (got {v['LATENCY_LOG']!r})")
+    return errors
+
+
+def _log(level, msg):
+    if level <= LOG_LEVEL:
+        print(msg, flush=True)
+
+
+def apply_values(v):
+    """Assign all 21 keys under the lock; returns [(key, old, new)] for changed keys."""
+    global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, _cfg_stat
+    changed = []
+    with lock:
+        prev_btn = SCROLL_BTN
+        prev_btn_h = SCROLL_BTN_H
+        startup = _cfg_stat is None            # first apply: model line counts as a change even if values equal the defaults
+        for key in DAEMON_KEYS:
+            new = v[key]
+            if globals().get(key) != new:
+                changed.append((key, globals()[key], new))
+            globals()[key] = new
+        DEADZONE = DEADZONE_IN * DPI
+        FULL = FULL_IN * DPI
+        DEADZONE_H = (DEADZONE_IN_H if DEADZONE_IN_H is not None else DEADZONE_IN) * DPI   # unset H keys fall back to the vertical value
+        FULL_H = (FULL_IN_H if FULL_IN_H is not None else FULL_IN) * DPI
+        if SCROLL_BTN != prev_btn or SCROLL_BTN_H != prev_btn_h:   # live button swap: don't carry a stuck-held state over (D7)
+            held = False
+            held_v = held_h = False
+            offset = h_offset = 0
+            acc_notch = 0
+            ticker_reset = True
+        for key, old, new in changed:          # enabling LATENCY_LOG: start a fresh observation epoch (no stale windows/hold ts)
+            if key == "LATENCY_LOG" and new is True and old is not True:
+                _lat_reset_hold()
+                _lat_reset_windows()
+        model_keys = ("TICK", "OUT_SMOOTH", "MIN_RATE")
+        if LATENCY_LOG and (startup or any(k in model_keys for k, _, _ in changed)
+                            or any(k == "LATENCY_LOG" and new is True for k, old, new in changed)):
+            _log(0, "latency model: " + _latency_model())
+        if _cfg_stat is None:                  # startup apply sets the initial stat for hot-reload
+            try:
+                st = os.stat(CONFIG_PATH)
+                _cfg_stat = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                pass
+    return changed
+
+
+# runtime state — defined before the startup config apply below, which may touch it
+DEADZONE = DEADZONE_IN * DPI
+FULL = FULL_IN * DPI
+DEADZONE_H = (DEADZONE_IN_H if DEADZONE_IN_H is not None else DEADZONE_IN) * DPI   # horizontal deadzone in counts; falls back to the vertical value when unset
+FULL_H = (FULL_IN_H if FULL_IN_H is not None else FULL_IN) * DPI
+
+held = False
+held_v = False          # SCROLL_BTN currently down
+held_h = False          # SCROLL_BTN_H currently down
+mode = "v"              # active axis while held: "v"/"h"; last press wins (LIFO)
+offset = 0              # vertical distance from the press point, in counts
+h_offset = 0            # horizontal distance from the press point, in counts
+acc_notch = 0
+ticker_reset = True     # one-shot flag: ticker zeroes rate/acc on next tick (new hold / axis switch)
+lock = threading.Lock()
+
+active = {}             # path -> thread handling that device (started by supervisor)
+last_fail_log = {}      # path -> monotonic time of last grab-failure log for it
+devices = {}            # path -> grabbed InputDevice (stop-on-mismatch: release a mouse the config no longer selects)
+_cfg_stat = None        # (st_mtime_ns, st_size) of the last successfully loaded config.ini; set by startup apply / hot-reload
+_cfg_load_info = None   # (CONFIG_PATH, override_count) after a load_config() that read the file; else None
+
+# --- latency debug state (LATENCY_LOG) ----------------------------------------
+# One shared dict: per-second windows plus per-hold timestamps. Every field is
+# touched under `lock` by both producer threads (run(), ticker()); emit_scroll()
+# updates uinput_max without re-locking because the ticker holds it and is the
+# only caller. All collection sits behind `if LATENCY_LOG:` guards — with the key
+# off, the only added cost is one global read per event/tick.
+_lat = {
+    "input": [],            # kernel-timestamp -> daemon-arrival delivery samples (s), current 1 s window
+    "periods": [],          # actual ticker periods (s), current window
+    "overrun_max": 0.0,     # worst tick lateness in the current window (s)
+    "overruns": 0,          # ticks that woke late in the current window
+    "press_emit": [],       # press -> first-emit deltas per hold (s), current window
+    "crossing_emit": [],    # deadzone-crossing -> first-emit deltas per hold (s), current window
+    "uinput_max": 0.0,      # slowest uinput write+syn in the current window (s)
+    "press_ts": None,       # monotonic ts of the current SCROLL_BTN down (per-hold state, not reset per window)
+    "cross_ts": None,       # monotonic ts when |offset| first passed DEADZONE this hold
+    "first_emitted": False,  # first-emit deltas already recorded for this hold
+    "ts_offset": None,      # time.time() - time.monotonic(), set on the first kernel event with a valid timestamp
+    "input_ok": True,       # flipped to False (with one warning line) if kernel timestamps prove unusable
+}
+
+
+def _lat_reset_hold():
+    """Clear per-hold timestamps (press-down, release cleanup, and enable transition)."""
+    _lat["press_ts"] = None
+    _lat["cross_ts"] = None
+    _lat["first_emitted"] = False
+
+
+def _lat_input_sample(ev, now_mono):
+    """Append one kernel-timestamp -> arrival delivery sample to the window.
+
+    Kernel event timestamps are wall-clock domain; `ts_offset` maps our monotonic
+    clock into that domain and is recalibrated if drift exceeds 5 s (e.g. an NTP
+    step). Events with a zero timestamp (some virtual devices) are skipped, negative
+    samples clamp to 0, and if the timestamps prove unusable (still off by more than
+    an hour after recalibration) the input metric is dropped for good with one warning."""
+    ts = ev.sec + ev.usec * 1e-6
+    if ts <= 0.0 or not _lat["input_ok"]:
+        return
+    off = _lat["ts_offset"]
+    if off is None:
+        off = time.time() - now_mono
+        _lat["ts_offset"] = off
+    d = (now_mono + off) - ts
+    if d < -5.0 or d > 3600.0:                # stale offset or wrong clock domain -> recalibrate once
+        off = time.time() - now_mono
+        _lat["ts_offset"] = off
+        d = (now_mono + off) - ts
+        if d < -5.0 or d > 3600.0:
+            _lat["input_ok"] = False
+            _log(0, "latency input metric disabled: kernel event timestamps do not match the wall-clock domain")
+            return
+    if d < 0.0:
+        d = 0.0
+    _lat["input"].append(d)
+
+
+def _pct(sorted_vals, pct):
+    """Nearest-rank percentile of a pre-sorted list."""
+    idx = min(len(sorted_vals) - 1, int(round((len(sorted_vals) - 1) * pct / 100.0)))
+    return sorted_vals[idx]
+
+
+def _lat_build_line():
+    """Build the per-second summary line from window samples; None if no activity this window.
+
+    Activity = input events, first-emit deltas, or uinput writes — ticker periods alone do not
+    count (the loop runs 24/7 and would otherwise emit a line every second while idle)."""
+    active = bool(_lat["input"] or _lat["press_emit"] or _lat["crossing_emit"]) or _lat["uinput_max"] > 0.0
+    if not active:
+        return None
+    parts = []
+    inp = sorted(_lat["input"])
+    if inp:
+        parts.append(f"input p50={_pct(inp, 50) * 1e3:.1f}ms "
+                     f"p95={_pct(inp, 95) * 1e3:.1f}ms max={inp[-1] * 1e3:.1f}ms n={len(inp)}")
+    per = _lat["periods"]
+    if per:
+        parts.append(f"tick period={(sum(per) / len(per)) * 1e3:.1f}ms "
+                     f"overrun_max={_lat['overrun_max'] * 1e3:.1f}ms overruns={_lat['overruns']}")
+    pe = _lat["press_emit"]
+    ce = _lat["crossing_emit"]
+    if pe or ce:
+        seg = []
+        if pe:
+            sp = sorted(pe)
+            seg.append(f"press->emit={_pct(sp, 50) * 1e3:.1f}ms")
+        if ce:
+            sc = sorted(ce)
+            seg.append(f"crossing->emit={_pct(sc, 50) * 1e3:.1f}ms")
+        parts.append(" ".join(seg) + f" (n={len(pe) or len(ce)})")
+    if _lat["uinput_max"] > 0.0:
+        parts.append(f"uinput_write_max={_lat['uinput_max'] * 1e3:.1f}ms")
+    return "latency: " + " | ".join(parts) if parts else None
+
+
+def _lat_reset_windows():
+    """Clear per-second windows after a report (per-hold timestamps are kept)."""
+    _lat["input"].clear()
+    _lat["periods"].clear()
+    _lat["overrun_max"] = 0.0
+    _lat["overruns"] = 0
+    _lat["press_emit"].clear()
+    _lat["crossing_emit"].clear()
+    _lat["uinput_max"] = 0.0
+
+
+def _latency_model():
+    """Theoretical latency from TICK/OUT_SMOOTH/MIN_RATE only — the design-inherent floor (see README).
+
+    tau is the first-order lag of `rate += (target - rate) * OUT_SMOOTH`; t63/t95 add
+    half a tick for average quantization delay. The first-emit figure simulates the real
+    ticker recurrence at the MIN_RATE target: n = first tick where int(acc) >= 1."""
+    T, S, m = TICK, OUT_SMOOTH, MIN_RATE
+    tau = 0.0 if S >= 1 else T / (-math.log(1.0 - S))
+    t63 = T / 2 + tau
+    t95 = T / 2 + 3 * tau
+    rate = acc = 0.0
+    n = None
+    for i in range(1, 51):                    # bounded: report ">50" if the first notch takes longer
+        rate += (m - rate) * S
+        acc += rate * 120 * T
+        if int(acc) >= 1:
+            n = i
+            break
+    if n is None:
+        first = f">{T / 2 * 1e3:.0f}ms (>50 ticks)"
+    else:
+        lo = (T / 2 + (n - 1) * T) * 1e3
+        hi = (T / 2 + n * T) * 1e3
+        first = f"~{lo:.0f}-{hi:.0f}ms ({n} tick{'s' if n != 1 else ''})"
+    return (f"tick={T * 1e3:.1f}ms tau={tau * 1e3:.1f}ms -> "
+            f"63% response ~{t63 * 1e3:.1f}ms, 95% ~{t95 * 1e3:.1f}ms; "
+            f"first emit after deadzone {first} [TICK/OUT_SMOOTH/MIN_RATE]")
+
+
+try:
+    _values = load_config()
+except ConfigError as exc:
+    _log(0, f"config error: {exc}")  # names every bad key + file; exits before any thread/device access
+    sys.exit(1)
+errors = check_config(_values)
+for msg in errors:
+    _log(0, f"config error: {msg}")
+if errors:
+    sys.exit(1)
+apply_values(_values)   # startup apply; also sets the initial _cfg_stat
+if _cfg_load_info is not None:
+    path, n = _cfg_load_info
+    _log(1, f"config loaded from {path} ({n} override(s))")
+
+cap = {
+    e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE, e.BTN_SIDE,
+                e.BTN_EXTRA,  
+                e.BTN_FORWARD, e.BTN_BACK],
+    e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL, e.REL_HWHEEL,
+               e.REL_WHEEL_HI_RES, e.REL_HWHEEL_HI_RES],
+}
+ui = None           # virtual mouse; created on first grab, advertising that device's USB ID (see sync_virtual_device)
+ui_id = None        # (vendor, product, version) currently advertised by ui
+
+
+def sync_virtual_device(info):
+    global ui, ui_id
+    new_id = (info.vendor, info.product, info.version)
+    if ui is not None and new_id == ui_id:
+        return
+    old, ui_id = ui, new_id
+    # clone the real mouse's USB ID so per-device compositor rules (e.g. Hyprland input:<vendor>:<product>) match it too
+    try:
+        ui = UInput(cap, name=VIRTUAL_NAME, vendor=new_id[0], product=new_id[1], version=new_id[2])
+    except OSError as exc:
+        _log(0, f"could not create virtual mouse: {exc}")
+        sys.exit(1)
+    _log(2, f"virtual mouse now advertises {new_id[0]:#x}:{new_id[1]:#x}")
+    if old is not None:
+        try:
+            old.close()
+        except OSError:
+            pass
+
+
+def emit_scroll(hi, horizontal=False):
+    global acc_notch
+    enabled = LATENCY_LOG                    # read once; caller holds `lock` and the ticker is the only emitter
+    if enabled:
+        t0 = time.monotonic()
+    ui.write(e.EV_REL, e.REL_HWHEEL_HI_RES if horizontal else e.REL_WHEEL_HI_RES, hi)
+    acc_notch += hi
+    n = int(acc_notch / 120)
+    if n:
+        ui.write(e.EV_REL, e.REL_HWHEEL if horizontal else e.REL_WHEEL, n)
+        acc_notch -= n * 120
+    ui.syn()
+    if enabled:
+        d = time.monotonic() - t0            # whole write+syn cost: a slow /dev/uinput stalls the ticker thread
+        if d > _lat["uinput_max"]:
+            _lat["uinput_max"] = d
+
+
+def ticker():
+    global ticker_reset
+    rate = 0.0          # smoothed signed scroll rate, notches per second
+    acc = 0.0
+    next_t = time.monotonic()
+    prev_iter = None        # when the previous tick actually ran (monotonic); latency stats only
+    last_report = next_t    # last per-second latency summary; latency stats only
+    while True:
+        next_t += TICK
+        t0 = time.monotonic()
+        delay = next_t - t0
+        if delay > 0:
+            time.sleep(delay)
+            iter_t = time.monotonic()
+            late = max(0.0, iter_t - next_t)         # woke after the scheduled slot (timer/scheduler jitter)
+        else:
+            late = -delay                            # already past the scheduled slot when we checked
+            next_t = time.monotonic()
+            iter_t = t0
+
+        with lock:
+            if LATENCY_LOG and prev_iter is not None:
+                _lat["periods"].append(iter_t - prev_iter)
+                if late > 0.0:
+                    _lat["overruns"] += 1
+                    if late > _lat["overrun_max"]:
+                        _lat["overrun_max"] = late
+            prev_iter = iter_t
+
+            if LATENCY_LOG and iter_t - last_report >= 1.0:   # one line per second while there is activity in the window
+                line = _lat_build_line()                      # sorts each window once, then we reset it
+                _lat_reset_windows()
+                last_report = iter_t
+                if line is not None:
+                    _log(0, line)                             # always-print tier: independent of LOG_LEVEL
+
+            if not held:
+                rate = acc = 0.0
+                continue
+
+            if ticker_reset:                         # new hold / axis switch: drop any stale smoothed rate (D5)
+                rate = acc = 0.0
+                ticker_reset = False
+            off = h_offset if mode == "h" else offset
+            dist = abs(off)
+            # per-axis ramp values; each unset horizontal key falls back to the vertical one
+            if mode == "h":
+                dz, full = DEADZONE_H, FULL_H
+                min_r = MIN_RATE_H if MIN_RATE_H is not None else MIN_RATE
+                max_r = MAX_RATE_H if MAX_RATE_H is not None else MAX_RATE
+                curve = CURVE_H if CURVE_H is not None else CURVE
+            else:
+                dz, full, min_r, max_r, curve = DEADZONE, FULL, MIN_RATE, MAX_RATE, CURVE
+            if dist <= dz:
+                target = 0.0
+            else:
+                frac = min(1.0, (dist - dz) / (full - dz))
+                target = min_r * (max_r / min_r) ** (frac ** curve)
+            side = 1 if off > 0 else -1
+            if mode == "v":
+                target *= -side                          # mouse up = scroll up — existing convention, untouched
+            else:
+                target *= side                           # hand right -> positive REL_HWHEEL ("scroll right") — D4, hardware-verify
+            if INVERT:
+                target = -target
+
+            rate += (target - rate) * OUT_SMOOTH
+            if abs(rate) < 0.05 and target == 0.0:
+                rate = acc = 0.0
+                continue
+
+            acc += rate * 120 * TICK
+            hi = int(acc)
+            if hi:
+                acc -= hi
+                if LATENCY_LOG and not _lat["first_emitted"]:   # first emit of this hold -> record both deltas once
+                    now_e = time.monotonic()
+                    pt = _lat["press_ts"]
+                    ct = _lat["cross_ts"]
+                    if pt is not None:
+                        _lat["press_emit"].append(now_e - pt)
+                    if ct is not None:
+                        _lat["crossing_emit"].append(now_e - ct)
+                    _lat["first_emitted"] = True
+                emit_scroll(hi, mode == "h")
+
+
+def run(path):
+    global held, held_v, held_h, mode, offset, h_offset, acc_notch, ticker_reset
+    try:
+        dev = evdev.InputDevice(path)
+    except OSError as exc:
+        _log(0, f"could not open {path}: {exc}")
+        return
+    try:
+        dev.grab()
+    except OSError as exc:
+        with lock:
+            now = time.monotonic()
+            if now - last_fail_log.get(path, 0.0) >= 5.0:
+                last_fail_log[path] = now
+                if exc.errno == errno.EBUSY:
+                    _log(
+                        0,
+                        f"{path}: device busy: close other mouse utilities "
+                        "(e.g. Logi Options+) or ensure only one instance is running",
+                    )
+                else:
+                    _log(
+                        0,
+                        f"{path}: no permission: run as root or add user to input group",
+                    )
+        return
+    with lock:
+        last_fail_log.pop(path, None)
+    sync_virtual_device(dev.info)
+    with lock:
+        devices[path] = dev
+    _log(1, f"grabbed {path} {dev.name}")
+    try:
+        for ev in dev.read_loop():
+            now_mono = time.monotonic() if LATENCY_LOG else 0.0   # arrival ts captured at event receipt
+            with lock:
+                if LATENCY_LOG:
+                    _lat_input_sample(ev, now_mono)
+
+                if ev.type == e.EV_KEY and (ev.code == SCROLL_BTN or ev.code == SCROLL_BTN_H):
+                    is_h = ev.code == SCROLL_BTN_H
+                    if ev.value == 1:                                # press -> this button becomes the active axis (LIFO)
+                        if is_h:
+                            held_h = True
+                        else:
+                            held_v = True
+                        held = True
+                        mode = "h" if is_h else "v"
+                        offset = h_offset = 0                        # fresh accumulators for the activated session
+                        acc_notch = 0                                # never carry partial notches across axes (D5)
+                        ticker_reset = True                          # drop any stale smoothed rate from the previous axis (D5)
+                        if LATENCY_LOG:
+                            _lat_reset_hold()
+                            _lat["press_ts"] = now_mono
+                    elif ev.value == 0:                              # release
+                        if is_h: held_h = False
+                        else:    held_v = False
+                        if not (held_v or held_h):
+                            held = False
+                            if LATENCY_LOG:
+                                _lat["press_ts"] = None              # same as today's plain release
+                        else:                                        # other button still down -> reactivate it fresh (D3)
+                            mode = "v" if held_v else "h"
+                            offset = h_offset = 0
+                            acc_notch = 0
+                            ticker_reset = True
+                            if LATENCY_LOG:
+                                _lat_reset_hold()
+                                _lat["press_ts"] = None              # fallback session reports crossing->emit only (D8)
+                    continue
+
+                # [disabled-btn] swallows the disabled button (it never reaches the OS).
+                if ev.type == e.EV_KEY and ev.code == DISABLED_BTN:
+                    continue
+
+                if held and ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
+                    if mode == "v" and ev.code == e.REL_Y:
+                        offset = max(-FULL, min(FULL, offset + ev.value))
+                        if LATENCY_LOG and _lat["cross_ts"] is None and abs(offset) > DEADZONE:
+                            _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
+                    elif mode == "h" and ev.code == e.REL_X:
+                        h_offset = max(-FULL_H, min(FULL_H, h_offset + ev.value))
+                        if LATENCY_LOG and _lat["cross_ts"] is None and abs(h_offset) > DEADZONE_H:
+                            _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
+                    continue
+
+                if held and ev.type == e.EV_REL and ev.code in (
+                        e.REL_WHEEL, e.REL_WHEEL_HI_RES, e.REL_HWHEEL, e.REL_HWHEEL_HI_RES):
+                    continue
+
+                try:
+                    ui.write_event(ev)
+                except Exception:
+                    pass
+    except Exception as exc:
+        _log(0, f"lost device {path}: {exc}")
+    finally:
+        with lock:
+            devices.pop(path, None)
+        try:
+            dev.close()
+        except OSError:
+            pass
+
+
+def device_selected(d):
+    # True if this device should be grabbed (see NAME_MATCH / DEVICE_MATCH at the top)
+    if "veloscroll" in d.name:
+        return False
+    caps = d.capabilities()
+    if e.REL_X not in caps.get(e.EV_REL, []):
+        return False
+    if DEVICE_MATCH is None:
+        return NAME_MATCH.lower() in d.name.lower()
+    if isinstance(DEVICE_MATCH, str):
+        return os.path.realpath(d.path) == os.path.realpath(DEVICE_MATCH)
+    vendor, product = DEVICE_MATCH
+    return (d.info.vendor, d.info.product) == (vendor, product)
+
+
+def find_matches():
+    found = set()
+    for path in evdev.list_devices():
+        try:
+            d = evdev.InputDevice(path)
+        except OSError:
+            continue
+        try:
+            if device_selected(d):
+                found.add(path)
+        except OSError:
+            continue
+        finally:
+            try:
+                d.close()
+            except OSError:
+                pass
+    return found
+
+
+def _maybe_reload_config():
+    """Once per supervisor iteration: re-read config.ini if its mtime/size changed."""
+    global _cfg_stat
+    try:
+        st = os.stat(CONFIG_PATH)
+    except OSError:
+        if _cfg_stat is not None:              # was present, now gone — say so once
+            _log(2, "config file missing — keeping current values")
+            _cfg_stat = None
+        return
+    cur = (st.st_mtime_ns, st.st_size)
+    if cur == _cfg_stat:
+        return
+    _cfg_stat = cur                            # update before parsing: a rejected parse is not retried until the file changes again
+    try:
+        values = load_config()
+    except ConfigError as exc:
+        _log(2, f"config reload rejected, keeping current values: {exc}")
+        return
+    errors = check_config(values)
+    if errors:
+        _log(2, "config reload rejected, keeping current values: " + "; ".join(errors))
+        return
+    changed = apply_values(values)
+    if changed:
+        _log(2, "config reloaded: " + ", ".join(f"{k} {o!r}->{n!r}" for k, o, n in changed))
+
+
+def supervisor():
+    first_scan = True
+    while True:
+        _maybe_reload_config()
+        try:
+            matches = find_matches()
+            scan_ok = True
+        except Exception as exc:
+            _log(0, f"scan failed: {exc}")
+            matches, scan_ok = set(), False
+        if first_scan and not matches:
+            _log(1, "no matching device yet — waiting")
+        first_scan = False
+        with lock:
+            for path in list(active):
+                if not active[path].is_alive():
+                    del active[path]
+                elif scan_ok and path not in matches:   # config no longer selects this mouse -> release it (read_loop raises, thread exits)
+                    d = devices.get(path)
+                    if d is not None:
+                        try:
+                            d.close()
+                        except OSError:
+                            pass
+                        _log(3, f"device released (no longer selected): {path}")
+            if scan_ok:                                  # a failed scan must never start or stop threads
+                for path in matches:
+                    t = active.get(path)
+                    if t is None or not t.is_alive():
+                        t = threading.Thread(target=run, args=(path,), daemon=True)
+                        t.start()
+                        active[path] = t
+        time.sleep(2.0)
+
+
+def main():
+    threading.Thread(target=ticker, daemon=True).start()
+    threading.Thread(target=supervisor, daemon=True).start()
+    threading.Event().wait()
+
+
+if __name__ == "__main__":
+    main()
