@@ -1,15 +1,15 @@
+# VeloScroll #
 ## TLDR ##
 
-- VeloScroll is a small Linux daemon that turns one mouse button into variable-velocity hold-to-scroll.
-- While you hold the button, moving the mouse scrolls at a speed proportional to your distance from the press point (with an adjustable deadzone and curve).
+- VeloScroll is a small Linux daemon that turns one mouse button into completely-configurable variable-velocity hold-to-scroll.
+- Both default **vertical scrolling** and optional **horizontal scrolling** (activated via a second mouse button) are supported.
+- While you hold the button, moving the mouse scrolls at a speed proportional to your distance from the press point.
 - When you release it, the mouse behaves exactly as normal. 
 - It works under X11 and Wayland alike.
-(This project started because my scrollwheel started acting up and because I also wanted the firefox autoscroll systemwide.)
-- **IMPORTANT (gets mentioned again at the appropriate time in this README):** all input gets routed through a virtual device named `veloscroll-mouse`. Pointer settings (sensitivity, acceleration, …) live in your DE/WM, not on the mouse — so tune them with a per-device rule keyed to your mouse's USB vendor/product ID if you can: the virtual device copies those IDs, and your tuned values apply automatically. If you rely on global defaults instead, adjust them once after install so they match how your actual mouse feels (one-time setup). Details live in each desktop environment's guide (see Installation below).
 
 ## Compatibility ##
 
-### Any Linux distro with a modern kernel (evdev + uinput support) ###
+**Any Linux distro with a modern kernel (evdev + uinput support)**
 There is no compositor dependency — the daemon operates below X11/Wayland via `/dev/input`, so behavior is identical under X11, Wayland, and any desktop environment (GNOME/KDE/XFCE/…).
 
 ## Permissions ## 
@@ -17,16 +17,17 @@ The primary install model runs as a root system unit → none needed. If you run
 
 ## Caveats ##
 
-- Only one process may exclusively grab a device at a time — close other mouse utilities (e.g. Logi Options+) before starting,
-- **or** pass the virtual device of that mouse utility into VeloScroll (if your specific mouse utility tool creates a virtual device). See "Finding your device name" for more info on this.
-If the daemon can't grab, it logs `device busy` and keeps retrying until the device frees up.
-- You might need to enable options like smooth scrolling/high res scrolling in Apps that support those (like browsers or certain terminals) 
+1) Only one process may exclusively grab a device at a time, so:
+- **close other mouse utilities** (e.g. Logi Options+) before starting
+- **or pass the virtual device of that mouse utility into VeloScroll** (if your specific mouse utility tool creates a virtual device). See [Finding your device name & activation button](#finding-your-device-name--activation-button).
+2) If the daemon can't grab, it logs `device busy` and keeps retrying until the device frees up.
+3) You might need to enable options like smooth scrolling/high res scrolling in Apps that support those (like browsers or certain terminals) 
 
 ## Latency & debugging ##
 
-<details open>
+<details>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 Where does time go when you hold the button? The pipeline, and what each segment is responsible for:
 
@@ -43,7 +44,7 @@ mouse → kernel evdev → veloscroll run() thread → ticker (TICK, default 250
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 A model computed purely from config (`TICK`, `OUT_SMOOTH`, `MIN_RATE`) — the design-inherent floor, not a measurement. With T = TICK and S = OUT_SMOOTH:
 
@@ -51,7 +52,7 @@ A model computed purely from config (`TICK`, `OUT_SMOOTH`, `MIN_RATE`) — the d
 - **Response to sustained movement** (step change in target): ~T/2 + τ to reach 63% of the new rate, ~T/2 + 3τ for 95% (T/2 = average tick quantization delay). Defaults: ~4.5 ms / ~9.5 ms.
 - **First emit after deadzone crossing**: simulated from the real ticker recurrence at MIN_RATE — with defaults the first notch lands on the very next tick, ≈ T/2 + (n−1)·T ≈ 2–6 ms (one tick).
 
-Excluded from the model: USB polling/kernel delivery (covered by the measured `input` metric), deadzone travel time (how long *you* take to move past the deadzone — user-dependent), and compositor/app rendering. Real movement changes the target continuously, so t₆₃/t₉₅ are estimates for a step change; treat all of these numbers as model values, never as measurements.
+Excluded from the model: USB polling/kernel delivery (covered by the measured `input` metric), deadzone travel time (how long *you* take to move past the deadzone — user-t), and compositor/app rendering. Real movement changes the target continuously, so t₆₃/t₉₅ are estimates for a step change; treat all of these numbers as model values, never as measurements.
 
 </details>
 
@@ -59,7 +60,7 @@ Excluded from the model: USB polling/kernel delivery (covered by the measured `i
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 Set `LATENCY_LOG = True` in `/etc/veloscroll/config.ini`, then watch:
 
@@ -67,7 +68,7 @@ Set `LATENCY_LOG = True` in `/etc/veloscroll/config.ini`, then watch:
 journalctl -u veloscroll -f
 ```
 
-Hot-reloads like every other key (no restart). While there is activity, one summary line appears per second; a model line appears at startup and whenever `LATENCY_LOG` or any of `TICK`/`OUT_SMOOTH`/`MIN_RATE` changes. The lines are independent of `LOG_LEVEL`.
+Hot-reloads like every other key (no restart). While there is activity, one summary line appears per second; a model line appears at startup and whenever `LATENCY_LOG` or any of `TICK`/`OUT_SMOOTH`/`MIN_RATE` changes. The lines are int of `LOG_LEVEL`.
 
 Sample output:
 
@@ -87,11 +88,13 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 
 </details>
 
+
+
 ### Troubleshooting ###
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 | Symptom | Likely cause |
 | --- | --- |
@@ -101,34 +104,45 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 | Healthy daemon lines but scrolling still looks laggy | Compositor/app side (frame pacing, app smooth-scroll settings) — out of scope for this daemon |
 
 </details>
-
 </details>
 
 ## Dependencies ##
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary>
 
-### Python 3 + evdev. ###
+#### Python 3 + evdev. ####
+
+<details>
+
+<summary>Click here to open/hide.</summary>
+
 Distro packages:
   - Debian/Ubuntu: `sudo apt install python3-evdev`
   - Fedora: `sudo dnf install python3-evdev`
   - Arch: `sudo pacman -S python-evdev`
   - openSUSE: `sudo zypper in python3-evdev`
   - Fallback: pip inside a virtualenv (`python3 -m venv <dir>`, activate it, then `pip install evdev`).
+    
+</details>
 
-### systemd (soft dependency) ###
+#### systemd (soft dependency) ####
+
+<details>
+
+<summary>Click here to open/hide.</summary>
+
 - The script can run standalone without it (python3 veloscroll.py), but the provided install path uses veloscroll.service, a root system unit for automatic restarts — so systemd is needed for that setup. 
 - Per-user units (systemctl --user) also work but aren't covered here.
-
+</details>
 </details>
 
 ## Finding your device name & activation button ##
 
-<details open>
+<details>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 List all input devices with their USB IDs (uses the evdev package you already installed):
 
@@ -174,7 +188,7 @@ The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 VeloScroll gives each button at most one role; every other event is forwarded to the virtual mouse unchanged:
 
@@ -188,13 +202,12 @@ Note the virtual device only advertises seven button capabilities — `BTN_LEFT`
 - **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini`, or directly in veloscroll.py.**
 
 </details>
-</details>
 
-### Feeding veloscroll from another tool's virtual device ###
+### Feeding another tool's virtual device into VeloScroll instead ###
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 VeloScroll doesn't care where events come from — any evdev input node that advertises `REL_X` and matches your selector is a valid source, including uinput devices created by other tools (e.g. the virtual mouse of [input-remapper](https://github.com/sezanzeb/input-remapper)). The pipeline becomes: physical mouse → remapper (exclusively grabs it) → its virtual device → veloscroll → `veloscroll-mouse`.
 
@@ -211,9 +224,9 @@ VeloScroll doesn't care where events come from — any evdev input node that adv
 
 ## Installation (root system unit) ##
 
-<details open>
+<details>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 1. Install Python 3 + evdev for your distro (see Dependencies above).
 2. Clone the project to a stable location (`/opt/veloscroll`) and install `veloscroll.service` as a root system unit — copy it into `/etc/systemd/system/`, then daemon-reload and enable it. This also starts the daemon.
@@ -239,7 +252,7 @@ Seeding is currently supported on KDE Plasma only; on other desktops there is no
 
 <details open>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 Run as your desktop user (**not** root — as root it would target `/root/.config`). All modes operate on KDE Plasma's `kcminputrc` (currently the only implemented backend):
 
@@ -268,30 +281,28 @@ Run as your desktop user (**not** root — as root it would target `/root/.confi
 
 ## Customize & reload ##
 
-Two config sources; per key, a non-empty value in `/etc/veloscroll/config.ini` overrides the default at the top of `/opt/veloscroll/veloscroll.py`:
-
+- Two config sources; per key, a non-empty value in `/etc/veloscroll/config.ini` overrides the default at the top of `/opt/veloscroll/veloscroll.py`.
+- **Editing `/etc/veloscroll/config.ini` is the recommended option.**
 - A missing or empty key falls back to the veloscroll.py default — every config.ini key exists there as its fallback.
-- Unknown keys in config.ini are ignored with a warning line (`journalctl -u veloscroll`).
-- A malformed value is rejected: at startup the daemon exits listing all errors; while running, the change is skipped (one `config reload rejected` log line) and current values stay in effect.
 
 ### config.ini keys (hot-reloaded) ###
 
-<details open>
+<details>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 | Key | Meaning / units | Tuning hint |
 | --- | --- | --- |
-| `NAME_MATCH` | Case-insensitive substring of your mouse's name that selects it — used only when DEVICE_MATCH is None (fallback) | Use a short unique fragment from the device list above; if any other device shares it, prefer DEVICE_MATCH |
-| `DEVICE_MATCH` | **Recommended** precise selector that overrides NAME_MATCH: an exact USB ID pair (`0x46d, 0xc084` in config.ini / `(0x46d, 0xc084)` in veloscroll.py) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice | Set it to your mouse's USB IDs — stable across reboots/ports and lets per-device pointer rules apply automatically; see "Finding your device name & activation button" above for finding IDs and paths |
+| `NAME_MATCH` | Case-insensitive substring of your mouse's name that selects it — used only when DEVICE_MATCH is None (fallback) | Use a short unique fragment from the device list above; if any other device shares it, prefer DEVICE_MATCH; **If you want to pipe another virtual device into VeloScroll this is the recommended option** |
+| `DEVICE_MATCH` | **Recommended for physical device** precise selector that overrides NAME_MATCH: an exact USB ID pair (`0x46d, 0xc084` in config.ini / `(0x46d, 0xc084)` in veloscroll.py) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice | Set it to your mouse's USB IDs — stable across reboots/ports and lets per-device pointer rules apply automatically; see[Finding your device name & activation button](#finding-your-device-name--activation-button) |
 | `SCROLL_BTN` | Key code of the button to hold for scrolling (evdev name like `BTN_SIDE`, or decimal code, e.g. 275) | Find with the interactive snippet above; names are `evdev.ecodes.BTN_*` |
-| `SCROLL_BTN_H` | Optional second button to hold for horizontal velocity scrolling — driven by mouse X movement (emits REL_HWHEEL/REL_HWHEEL_HI_RES), using the vertical ramp unless overridden by the per-axis keys DEADZONE_IN_H/FULL_IN_H/MIN_RATE_H/MAX_RATE_H/CURVE_H; evdev name or decimal code, or `none` to disable (default) | Must differ from SCROLL_BTN and DISABLED_BTN; e.g. the upper side button on a Logitech PRO X with `DISABLED_BTN = none`; INVERT flips both axes — see hardware docs for direction notes |
+| `SCROLL_BTN_H` | Optional second button to hold for horizontal velocity scrolling — driven by mouse X movement (emits REL_HWHEEL/REL_HWHEEL_HI_RES), using the vertical ramp unless overridden by the horizontal keys; evdev name or decimal code, or `none` to disable (default) | Must differ from SCROLL_BTN and DISABLED_BTN; INVERT flips both axes — see hardware docs for direction notes |
 | `DISABLED_BTN` | Key code that is swallowed and does nothing, or `none` to disable this feature | Set `none` if you don't want to disable a button |
 | `DPI` | Your mouse's current DPI (counts/inch) — converts inches to raw counts | Set it to your mouse's *current* DPI setting, not its maximum |
 | `DEADZONE_IN` | Distance from the press point (inches) below which nothing scrolls | Raise if scrolling starts before you've moved the mouse at all |
 | `FULL_IN` | Distance (inches) from the press point where MAX_RATE is reached; must be > DEADZONE_IN | The span over which speed ramps up |
 | `MAX_RATE` | Scroll rate in notches/second at FULL_IN and beyond | Your top scrolling speed |
-| `MIN_RATE` | Scroll rate in notches/second just past the deadzone | The floor of the ramp; keep > 0 |
+| `MIN_RATE` | Scroll rate in notches/second just past the deadzone | The floor of the ramp; keep above 0 |
 | `CURVE` | Shape of the speed ramp: >1 gentle near the start, =1 linear, <1 steep near the start | Tune feel: <1 reacts fast to small movements, >1 is more forgiving |
 | `DEADZONE_IN_H` | Horizontal variant of DEADZONE_IN (inches), used only while SCROLL_BTN_H is held; unset or `none` falls back to the vertical value | Only if horizontal scrolling should start at a different distance than vertical |
 | `FULL_IN_H` | Horizontal variant of FULL_IN; must be greater than the effective horizontal deadzone (per-key fallback) | The span over which horizontal speed ramps up |
@@ -310,9 +321,9 @@ Two config sources; per key, a non-empty value in `/etc/veloscroll/config.ini` o
 
 ### veloscroll.py-only constants (restart required) ###
 
-<details open>
+<details>
 
-<summary>Click here to hide this</summary>
+<summary>Click here to open/hide.</summary><br/>
 
 | Variable | Meaning / units | Tuning hint |
 | --- | --- | --- |
@@ -320,10 +331,7 @@ Two config sources; per key, a non-empty value in `/etc/veloscroll/config.ini` o
 | `VIRTUAL_NAME` | Name of the virtual device — advertised together with your real mouse's USB IDs so per-device pointer rules apply to it automatically | Only change it if you run several daemon instances side by side (the seed script looks for `veloscroll-mouse`) |
 | `MAX_BACKUPS` (only relevant if your DE makes `veloscroll_seed.py` create .bak files, i.e. you have Per Device instead of global mouse settings) | veloscroll_seed.py only — max number of `kcminputrc.bak-*` backup files to keep; -1 = unlimited (default), N ≥ 1 = keep only the newest N after each run that writes a backup | Set e.g. 5 if you don't want backup files accumulating in ~/.config |
 
-Reload after editing:
-
-- Edit `/etc/veloscroll/config.ini` → applies live within ~2 s; verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key).
-- Edits to veloscroll.py still require a restart:
+- Edits to veloscroll.py require a restart:
 
   ```bash
   sudo systemctl restart veloscroll
