@@ -7,7 +7,7 @@
 - When you release it, the mouse behaves exactly as normal. 
 - Optionally configure the button as tap-to-toggle instead of hold via `TOGGLE_SCROLL` (tap again to disengage).
 - It works under X11 and Wayland alike.
-- **All configuration lives in `/etc/veloscroll/config.ini`** — hot-reloaded within ~2 s and survives updates. Do not edit `veloscroll.py` for your settings (see [Customize & reload](#customize--reload)).
+- **All configuration lives in `/etc/veloscroll/config.ini`** — hot-reloaded within ~2 s and survives updates (see [Customize & reload](#customize--reload)).
 
 ## Compatibility ##
 
@@ -15,11 +15,11 @@
 There is no compositor dependency — the daemon operates below X11/Wayland via `/dev/input`, so behavior is identical under X11, Wayland, and any desktop environment (GNOME/KDE/XFCE/…).
 
 ## Permissions ## 
-The primary install model runs as a root system unit → none needed. If you run it as a normal user instead, the user needs membership in the `input` group plus access to `/dev/uinput` (exact setup varies by distro). 
+The primary install model runs as a root system unit → none needed. If you run it as a normal user instead, the user needs membership in the `input` group plus access to `/dev/uinput` (exact setup varies by distro, more work but better from a security standpoint). 
 
 ## Caveats ##
 
-1) Only one process may exclusively grab a device at a time, so:
+1) Only one process may exclusively grab a device at a time, so depending on your usecase and setup, you can either:
 - **close other mouse utilities** (e.g. Logi Options+) before starting
 - **or pass the virtual device of that mouse utility into VeloScroll** (if your specific mouse utility tool creates a virtual device). See [Finding your device name & activation button](#finding-your-device-name--activation-button).
 2) If the daemon can't grab, it logs `device busy` and keeps retrying until the device frees up.
@@ -69,11 +69,11 @@ List all input devices with their USB IDs (uses the evdev package you already in
 sudo python3 /opt/veloscroll/ListDeviceNames.py
 ```
 
-- **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and maybe lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above, depends on how your DE/WM implemented per-device pointer rules).
-- `NAME_MATCH` is a simpler fallback: any case-insensitive substring of your mouse's name from that list (e.g. `"Logitech Pro X"`); it is only used when `DEVICE_MATCH` is None, so make sure no other device shares the fragment or set `DEVICE_MATCH`.
+- **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini.example` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and maybe lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above, depends on how your DE/WM implemented per-device pointer rules).
+- `NAME_MATCH` is a simpler fallback: any case-insensitive substring of your mouse's name from that list (e.g. `"Logitech Pro X"`); it is only used when `DEVICE_MATCH` is None, so make sure no other device shares the fragment or set `DEVICE_MATCH`. **Usefull for grabbing virtual devices created by other utilities.**
 - Alternative for names without Python: `/sys/class/input/event*/device/name`; stable symlinks with IDs: `ls -l /dev/input/by-id`.
 
-**Rare edge case: Two of the same mouse** share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that while several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
+**Rare edge case:** Two of the same mouse share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that if several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
 
 To find the activation button code, open your device and print every key event it emits — press the candidate side buttons and read off their codes (movement/scroll events are filtered out; Ctrl-C to stop):
 Press all the buttons on your mouse once and verify that no codes outside the range of 256–287 are reported. Expected outputs are something like:
@@ -101,23 +101,26 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use decimal code over the bare name (e.g. `SCROLL_BTN = 275` and `SCROLL_BTN = BTN_SIDE`). Set these in config.ini, not in veloscroll.py.
+The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` either an evdev button name or a decimal code works (e.g. `SCROLL_BTN = BTN_SIDE` and `SCROLL_BTN = 275`). Set these in config.ini, not in veloscroll.py.
 
-### Mice with more buttons than these Buttons ###
+### Mice with non-standard buttons ###
 
 <details open>
 
 <summary>Click here to open/hide.</summary><br/>
 
-VeloScroll gives each button at most one role; every other event is forwarded to the virtual mouse unchanged:
+Mice with buttons beyond plain left/middle/right — each button can get mapped to at most one role, and the three role codes must be distinct (enforced by `check_config`); everything else passes through.
 
-- **`SCROLL_BTN`** — one code you hold to scroll. Its press and release are consumed by the daemon and never reach the OS, so while veloscroll runs that button no longer performs its normal click action.
-- **`SCROLL_BTN_H`** — optional second code held for horizontal velocity scrolling (mouse X movement drives `REL_HWHEEL`/`REL_HWHEEL_HI_RES` through the vertical ramp, unless overridden by the per-axis keys below); with **`VERTICAL_H = true`** it scrolls vertically instead (up/down movement drives `REL_WHEEL`, same `_H`-key values); set `none` to disable this feature.
-- **`DISABLED_BTN`** — optionally a second code that is swallowed entirely (does nothing); set `none` to disable this feature.
-- **All remaining buttons pass through as-is**, whatever their codes.
+- **`SCROLL_BTN`** — hold to scroll, or tap-to-toggle while **`TOGGLE_SCROLL = true`** (tap again to disengage; releasing does nothing while latched). In both modes its press and release edges are consumed and never reach the OS → that button loses its normal click action while the daemon runs.
+- **`SCROLL_BTN_H`** — optional second axis: horizontal by default (mouse X movement drives `REL_HWHEEL`/`REL_HWHEEL_HI_RES` through the vertical ramp, unless overridden by the `_H` keys); with **`VERTICAL_H = true`** it scrolls vertically instead (up/down movement drives `REL_WHEEL`, same `_H`-key values). Has its own toggle mode via `TOGGLE_SCROLL_H`; unset or `none` falls back to `TOGGLE_SCROLL`. Set `none` to disable the feature.
+- **`DISABLED_BTN`** — swallowed entirely (does nothing); set `none` to disable this feature.
+- **All remaining buttons pass through as-is**, whatever their codes — subject to the next paragraph while a scroll session is active.
 
-The virtual device advertises every standard mouse button code (0x100–0x11F: `BTN_MISC`/`BTN_0`–`BTN_9` through `BTN_TASK`, the `cap` dict at the top of veloscroll.py), so extra side/top buttons on many-button mice — DPI or back/forward keys reported as e.g. `BTN_SIDE`, `BTN_EXTRA`, `BTN_TASK`, `BTN_5`–`BTN_9` — pass through and work without any code edits. Only events outside that range (e.g. keyboard/media keycodes, or gamepad codes ≥ 0x130) are not advertised, so such buttons may do nothing. This is fine — it's not expected for mice to  send these (gaming mice with dedicated media/macro keys sometimes report them as keyboard keycodes); if your mouse actually uses something outside this range (decimal 256–287), feel free to open an issue.
-- **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini`, not in veloscroll.py.**
+**While a scroll session is active the cursor stays put: movement on the active axis is consumed for velocity math and wheel events from the physical mouse are swallowed; releasing the button (or tapping it off) restores normal behavior immediately.**
+
+The virtual device advertises EV_KEY codes **0x100–0x11F — decimal 256–287** (`BTN_MISC`/`BTN_0`–`BTN_9` and `BTN_LEFT`…`BTN_TASK`; the `cap` dict at the top of veloscroll.py), so extra side/top buttons on many-button mice — DPI or back/forward keys reported as e.g. `BTN_SIDE`, `BTN_EXTRA`, `BTN_TASK`, `BTN_5`–`BTN_9` — pass through and work without code edits. Codes outside 256–287 are not advertised, so such buttons might do nothing: keyboard/media keycodes below 256 (gaming-mouse media/macro keys sometimes report as keyboard keycodes), gamepad codes ≥ 0x130, and even the extended "special" mouse button codes `BTN_TRIGGER`/`BTN_THUMB*`/`BTN_TOP*`/`BTN_PINKIE`/`BTN_BASE*` at decimal 288–299. That is fine for normal mice; if a button you need reports outside decimal 256–287 and stops working with VeloScroll, open an issue.
+
+If both scroll buttons are held at once, the last press owns the active axis; releasing it reactivates the other fresh (LIFO).
 
 </details>
 
@@ -132,9 +135,9 @@ VeloScroll doesn't care where events come from — any evdev input node that adv
 - Point your selector at the *virtual* node, not the physical one — a `NAME_MATCH` fragment of the remapper's device name is the stable option (uinput devices get no USB `by-id`/`by-path` links on most systems, and bare `/dev/input/eventN` numbers change across reboots).
 - If your selector also matches the physical mouse (the remapper's forwarding clone keeps the source's name and often its USB IDs), veloscroll grabs the virtual node and logs periodic `device busy` lines for the physical one the remapper holds — harmless but noisy.
 - Start order: enable the remapper before starting veloscroll, so it wins the grab on the physical mouse; a remapper started later is picked up automatically on the next ~2 s scan (no restart).
-- `SCROLL_BTN`/`DISABLED_BTN` accept any code the remapper emits; pass-through mouse buttons work across the full standard button range (0x100–0x11F, see [above](#mice-with-more-buttons-than-these-buttons)); relative motion passes through unscaled, so the same `DPI` value applies.
+- `SCROLL_BTN`/`DISABLED_BTN` accept any code the remapper emits; pass-through mouse buttons work across the full standard button range (0x100–0x11F, see [above](#mice-with-non-standard-buttons)); relative motion passes through unscaled, so the same `DPI` value applies.
 
-**Tested: no.** This combination is supported by design but has not been verified end-to-end with input-remapper or any other remapper — report what you find back in an issue/PR.
+**Tested: no.** This combination is supported by design but has not been verified with input-remapper or any other remapper — report what you find back in an issue/PR.
 
 </details>
 
@@ -344,24 +347,32 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 
 <summary>Click here to open/hide.</summary><br/>
 
-`veloscroll_preset.py` switches between named presets of the 15 preset keys — the 12 ramp keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`, `DEADZONE_IN`, `FULL_IN` + their `_H` variants) plus the 3 scroll-mode flags (`TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`) — without hand-editing config.ini. A load is an atomic, pre-validated rewrite of only those keys' lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s:
+`veloscroll_preset.py` switches between named presets of the veloscroll daemon keys without hand-editing config.ini. `save <name>` snapshots every key into `<config dir>/presets/<name>.ini`; each load command applies only its own group — and a load is an atomic, pre-validated rewrite of only that group's lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s:
 
 ```bash
-python3 /opt/veloscroll/veloscroll_preset.py save <name>      # snapshot all 15 preset keys -> /etc/veloscroll/presets/<name>.ini
-python3 /opt/veloscroll/veloscroll_preset.py loadfeel <name>  # apply only the feel keys present in the preset (distance and scroll-mode keys ignored even if present)
-python3 /opt/veloscroll/veloscroll_preset.py loadall <name>   # additionally apply the physical distance keys (DEADZONE_IN / FULL_IN + _H) and the scroll-mode flags
-python3 /opt/veloscroll/veloscroll_preset.py list             # table of every preset's values (absent = not captured)
-python3 /opt/veloscroll/veloscroll_preset.py backups          # table of every .bak-<timestamp> backup, newest first
-python3 /opt/veloscroll/veloscroll_preset.py restore [BACKUP] # put a backup back over its original (default: the newest config.ini backup)
+python3 /opt/veloscroll/veloscroll_preset.py save <name>          # snapshot every daemon key -> /etc/veloscroll/presets/<name>.ini (*_H keys only when set in config.ini)
+python3 /opt/veloscroll/veloscroll_preset.py loaddistances <name> # apply the physical distance keys (DEADZONE_IN / FULL_IN + _H) present in the preset
+python3 /opt/veloscroll/veloscroll_preset.py loadfeel <name>      # apply only the 8 feel keys (MAX_RATE / MIN_RATE / CURVE / OUT_SMOOTH + their _H variants)
+python3 /opt/veloscroll/veloscroll_preset.py loadkeys <name>      # apply the button bindings (SCROLL_BTN / SCROLL_BTN_H / DISABLED_BTN)
+python3 /opt/veloscroll/veloscroll_preset.py loaddevice <name>    # apply the device selection keys (NAME_MATCH / DEVICE_MATCH / DPI)
+python3 /opt/veloscroll/veloscroll_preset.py loadscroll <name>    # apply the scroll-mode flags (TOGGLE_SCROLL / TOGGLE_SCROLL_H / VERTICAL_H)
+python3 /opt/veloscroll/veloscroll_preset.py loadall <name>       # apply everything present except the button and device groups
+python3 /opt/veloscroll/veloscroll_preset.py list                 # table of every preset's values (absent = not captured); make sure your terminal has enough width for the table to render properly
+python3 /opt/veloscroll/veloscroll_preset.py backups              # table of every .bak-<timestamp> backup, newest first
+python3 /opt/veloscroll/veloscroll_preset.py restore [BACKUP]     # put a backup back over its original (default: the newest config.ini backup)
+
+# any number of `COMMAND NAME` pairs run in one invocation, each with its own preset name, applied in order:
+python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast loaddistances quiet
 ```
 
 (On a standard install run these as root — `sudo` or the scoped sudoers rule below; with a per-user `VELOSCROLL_CONFIG`, no root is needed.)
 
-- **Why loads are tiered:** `DEADZONE_IN`/`FULL_IN` (+ `_H`) describe your *physical* setup — how far you move the mouse. A shared "fast" feel preset must not silently change them, so routine swaps use `loadfeel`; only an explicit `loadall` applies distance keys. The scroll-mode flags (`TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`) are tiered the same way: a feel preset shouldn't silently switch how your button engages scrolling or what axis SCROLL_BTN_H drives, so `loadfeel` never touches them and only `loadall` applies them.
-- **Preset files** live in `<config dir>/presets/` (`/etc/veloscroll/presets/` by default; next to your config when using `VELOSCROLL_CONFIG`). The repo bundles the five TUNING.md cases as partial presets (the four vertical feel keys each) in [`presets.example/`](presets.example/) — install with `sudo mkdir -p /etc/veloscroll/presets && sudo cp /opt/veloscroll/presets.example/*.ini /etc/veloscroll/presets/`.
-- **Save capture:** vertical keys are always written (config.ini value, else the built-in default); horizontal keys only when explicitly set in config.ini — so an unset axis keeps its fallback-to-vertical relation on any machine instead of baking a stale number into the preset. `VERTICAL_H` follows that same explicit-set rule: captured only when set in config.ini, otherwise omitted and each machine keeps its local value (false default) on load. Unknown keys in a preset file are warned about and ignored (like unknown config.ini keys).
+- **Why loads are grouped:** each load command applies only its own group, so one kind of swap can't silently change another machine's choices. The distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) describe your *physical* setup — how far you move the mouse — and the button bindings plus device selection are per-machine choices; a shared "fast" feel preset must not touch any of them, so routine swaps use `loadfeel` and only an explicit `loaddistances`/`loadkeys`/`loaddevice` (or `loadall`) applies those groups. The scroll-mode flags (`TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`) are grouped the same way via `loadscroll`. A load that finds keys outside its group in the preset never applies them — it lists each one with the command that would, so a partial or older preset file works as-is.
+- **You can chain multiple loadgroups.** You can specify a preset name to load for each, i.e. `loadfeel fast loaddistances quiet loaddevice MyPreset loadscroll MyPreset`
+- **Preset files** live in `<config dir>/presets/` (`/etc/veloscroll/presets/` by default; next to your config when using `VELOSCROLL_CONFIG`). The repo bundles the five TUNING.md cases as partial presets (the four vertical feel keys each) in [`presets.example/`](presets.example/) — install with `sudo mkdir -p /etc/veloscroll/presets && sudo cp /opt/veloscroll/presets.example/*.ini /etc/veloscroll/presets/`. Partial and older preset files work as-is: a load only ever applies the keys that are actually present.
+- **Save capture:** every daemon key is written (config.ini value, else the built-in default); `*_H` keys only when explicitly set in config.ini — so an unset axis keeps its fallback-to-vertical relation on any machine instead of baking a stale number into the preset. That includes `VERTICAL_H`, `TOGGLE_SCROLL_H` and `SCROLL_BTN_H`: captured only when set, otherwise omitted and each machine keeps its local value (an unset `SCROLL_BTN_H` leaves horizontal scrolling disabled) on load. Unknown keys in a preset file are warned about and ignored (like unknown config.ini keys).
 - **Backups & pruning:** each load that changes config.ini first writes `config.ini.bak-<timestamp>` (a save-overwrite backs up the preset file as `<name>.ini.bak-*`); both families are pruned per `MAX_BACKUPS`, the same knob as `veloscroll_seed.py` (-1 = unlimited, default — see Advanced notes). A no-op load (values already equal) writes nothing and makes no backup.
-- **Recovery:** `backups` lists every backup of the config and its presets; `restore [BACKUP]` puts one back over its original — with no argument that's the newest config.ini backup, otherwise any file name exactly as listed (or a path relative to the config dir). Restoring the live config passes the same pre-validation gate as a load, so it can never write a config the daemon would reject; and every restore backs up the current state first, so undoing is itself reversible.
+- **Recovery:** `backups` lists every backup of the config and its presets; `restore [BACKUP]` puts one back over its original — with no argument that's the newest config.ini backup, otherwise any file name exactly as listed (or a path relative to the config dir). Every restore backs up the current state first, so undoing is itself reversible.
 - **Permissions:** `/etc/veloscroll` is root-owned, so on the standard install run it via sudo — or add a scoped passwordless rule for that one binary only (validate with `visudo -cf` before installing):
 
   ```text
@@ -374,7 +385,7 @@ python3 /opt/veloscroll/veloscroll_preset.py restore [BACKUP] # put a backup bac
 
 **Shortcut switching (optional).** Bind a preset load to anything you can bind — press it, then verify with `journalctl -u veloscroll`:
 
-- Command/URL → `/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel YourPresetName`, test it manually once it might need sudo to write to /etc/veloscroll/config, then just bind this command or a short bash script to your preferred keyboard shortcut however your particular Desktop Environment implements that.
+- Command/URL → `/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel YourPresetName`, test it manually once, then just bind this command or a short bash script to your preferred keyboard shortcut however your particular Desktop Environment implements that.
 
 
 </details>
@@ -385,45 +396,18 @@ python3 /opt/veloscroll/veloscroll_preset.py restore [BACKUP] # put a backup bac
 
 <summary>Click here to open/hide.</summary><br/>
 
-`veloscroll_tuning_helper.py` measures your *actual* hand movement so you can set the physical distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) from real distances instead of guesswork, and sanity-check `DPI`, `MAX_RATE`, `MIN_RATE`, `CURVE`. With the daemon stopped it exclusively grabs the configured mouse (all matching devices, full daemon parity) plus a temporary pass-through virtual mouse: while you hold the scroll button the cursor stays put and no scroll is ever emitted; between holds the mouse behaves exactly as normal. Each hold prints an in-place distance gauge with the would-be target rate (the daemon's exact ramp formula), a line each time you leave or re-enter the deadzone and each time you cross the full-rate boundary either way, plus a copy-pasteable release summary. Movement below/left of the start point is negative and gets a direction label (`(downwards)`, `(upwards)` — or `(leftwards)`/`(rightwards)` for horizontal holds without `VERTICAL_H`):
+`veloscroll_tuning_helper.py` measures your *actual* hand movement so you can set the physical distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) from real distances instead of guesswork, and sanity-check `DPI`, `MAX_RATE`, `MIN_RATE`, `CURVE`. With the daemon stopped it exclusively grabs the configured mouse (all matching devices, full daemon parity). Each hold prints an in-place distance gauge with the would-be target rate (the daemon's exact ramp formula), a line each time you leave or re-enter the deadzone and each time you cross the full-rate boundary either way, plus a copy-pasteable release summary.
 
 ```bash
 sudo systemctl stop veloscroll
 sudo python3 /opt/veloscroll/veloscroll_tuning_helper.py   # --config PATH for a per-user config
 # hold the scroll button and move; read the milestone + summary lines
 # set DEADZONE_IN / FULL_IN (+ _H) in /etc/veloscroll/config.ini to your liking
+# the tuning helper script also hot reloads config.ini so you can set -> test in one workflow
 sudo systemctl start veloscroll
 ```
 
-Sample output (DPI 1600, `DEADZONE_IN = 0.05`, `FULL_IN = 3.0`):
-
-```text
-config: /etc/veloscroll/config.ini (7 override(s))
-note: inch readouts are only as good as the DPI key (DPI = 1600)
-grabbed /dev/input/event4 Logitech G Pro X Superlight 2
-DEADZONE_IN = 0.05 in (80 counts) | FULL_IN = 3 in (4800 counts)
-DEADZONE_IN_H falls back to vertical | FULL_IN_H falls back to vertical
-SCROLL_BTN = BTN_SIDE / 275
-SCROLL_BTN_H = none (horizontal scrolling disabled)
-hold the button and move; Ctrl-C quits
-[v] scroll button pressed (BTN_SIDE / 275)          # hand moves below the start point -> negative readout
-[v] deadzone passed at -0.05 in (-81 counts)
-[v] deadzone re-entered at -0.01 in (-21 counts)
-[v] deadzone passed at -0.06 in (-91 counts)
-[v] -1.32 in from start (-2112 counts) | target 39 notches/s (downwards)
-[v] max-rate reached at -3.00 in (-4800 counts) — further movement clamps here
-[v] max-rate exited at -2.06 in (-3300 counts) — clamping lifted
-[v] max-rate reached at -3.00 in (-4800 counts) — further movement clamps here
-[v] released after 1.3 s — peak -3.0 in (-4800 counts), deadzone crossed, max-rate reached
-[v] scroll button pressed (BTN_SIDE / 275)          # hand moves above the start point -> positive readout
-[v] 0.73 in from start (1163 counts) | target 21 notches/s (upwards)
-[v] released after 0.8 s — peak 0.7 in (1163 counts), deadzone crossed, max-rate not reached
-config reloaded: DEADZONE_IN 0.05->0.2
-veloscroll is not running — restart when done: sudo systemctl start veloscroll
-```
-
-- The gauge (`[v] … | target N notches/s`) updates in place while you hold; the `[h]` lines work the same for `SCROLL_BTN_H` (mouse X movement, or up/down with `VERTICAL_H = true`).
-- config.ini is hot-reloaded mid-session exactly like the daemon: a live edit switches the thresholds immediately (`config reloaded:` line per key), a rejected edit keeps the old values.
+- The gauge (`[v] … | target N notches/s`) updates in place while you hold/are toggled; the `[h]` lines work the same for `SCROLL_BTN_H` (mouse X movement, or up/down with `VERTICAL_H = true`).
 - The helper never starts or stops the daemon and never emits scroll — if the grab fails with `device busy`, stop whatever else holds the mouse (usually the daemon) first, then re-run it.
 
 </details>
@@ -436,15 +420,11 @@ veloscroll is not running — restart when done: sudo systemctl start veloscroll
 
 `DE_WM` and `VIRTUAL_NAME` at the top of `veloscroll.py` belong to `veloscroll_seed.py`, and `MAX_BACKUPS` is shared with the preset helper (`veloscroll_preset.py`) — all three are intentionally not in config.ini. Only touch them if you maintain a fork or run an unusual setup — like every edit to veloscroll.py, changes need a restart (`sudo systemctl restart veloscroll`) and will be lost (or conflict) on the next update:
 
-- `DE_WM` — which pointer-settings backend the seed script uses; supported values live in its backend registry (`BACKENDS`, currently only `kde-plasma`; per-DE guides: [docs-desktop/](docs-desktop/)). An unknown value makes the seed exit with an error listing the supported ones.
-- `VIRTUAL_NAME` — name of the virtual device (default `veloscroll-mouse`), advertised together with your real mouse's USB IDs so per-device pointer rules apply to it automatically; the seed script looks for exactly this name, so keep the default unless you run several daemon instances side by side.
+- `DE_WM` — which pointer-settings backend the seed script uses; supported values live in its backend registry (`BACKENDS`, currently only `kde-plasma`; per-DE guides: [docs-desktop/](docs-desktop/)). An unknown value makes the seed script exit with an error listing the supported ones.
+- `VIRTUAL_NAME` — name of the virtual device (default `veloscroll-mouse`), advertised together with your real mouse's USB IDs so per-device pointer rules might apply to it automatically; the seed script looks for exactly this name, so keep the default unless you run several daemon instances side by side for whatever reason.
 - `MAX_BACKUPS` — max number of `.bak-*` backups kept per file family: the seed's `kcminputrc.bak-*` (only relevant on DEs with per-device settings) and the preset helper's `config.ini.bak-*` / `<name>.ini.bak-*`; -1 = unlimited, N ≥ 1 = keep only the newest N after each run that writes a backup. 
-The default is 5, so preset reloads don't clutter your filesystem.
+The default is 5, so backups created by preset loads don't clutter your filesystem.
 Not hot-reloadable — like every other veloscroll.py constant, changes need a restart.
-
-Also:
-
-- Thanks to the supervisor loop, a matching device plugged in *after* startup is picked up automatically — no restart needed for hotplug.
 - For tests or per-user setups you can point the daemon at another file: `VELOSCROLL_CONFIG=/path/to/config.ini python3 veloscroll.py`.
 
 </details>
@@ -453,7 +433,7 @@ Also:
 
 There is no automatic update mechanism — when a new version is released, you have to fetch it yourself and restart the daemon:
 
-1. **Verify what changed first.** The daemon runs as root, so treat an update like installing any other software: read the release notes / `git log --oneline` for the incoming commits, check whether `veloscroll.service`, dependencies (`python3-evdev`), or behavior changed, and review any diff you don't recognize before running it.
+1. **Verify what changed first.** The daemon runs as root, so treat an update like installing any other software: read the release notes / `git log --oneline` for the incoming commits, check whether `veloscroll.service`, dependencies (`python3-evdev`), or behavior changed, and review any diff before running it.
 2. Update the code in `/opt/veloscroll`:
 
    ```bash
@@ -471,7 +451,8 @@ There is no automatic update mechanism — when a new version is released, you h
    ```
    
 Expect systemd printing the newest Version (like `Veloscroll vX.Y`), a fresh "config loaded from ..." and "grabbed <path> <device name>"
-Your `/etc/veloscroll/config.ini` lives outside the repo and survives step 2 untouched — unknown keys are ignored with a warning, removed keys fall back to built-in defaults. That is also why all configuration belongs in config.ini: local edits to `veloscroll.py` are lost or conflict on every update (see [Customize & reload](#customize--reload) above). To roll back, check out the previous commit in `/opt/veloscroll` and repeat step 4.
+Your `/etc/veloscroll/config.ini` lives outside the repo and survives step 2 untouched — unknown keys are ignored with a warning, removed keys fall back to built-in defaults. That is also why all configuration belongs in config.ini: local edits to `veloscroll.py` are lost or conflict on every update (see [Customize & reload](#customize--reload) above). 
+To roll back, check out the previous commit in `/opt/veloscroll` and repeat step 4.
 
 ## Tested ##
 

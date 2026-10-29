@@ -22,6 +22,9 @@ All notable changes to VeloScroll are documented in this file.
 - Loads are pre-validated with the daemon's own parsing/validation (single source of truth via importing veloscroll), written atomically (temp file + `os.replace`) after a `config.ini.bak-<timestamp>` backup, and backups pruned per `MAX_BACKUPS` — the same knob as `veloscroll_seed.py`. Unknown preset keys are warned about and ignored; no-op loads write nothing.
 - Recovery commands: `backups` lists every `.bak-<timestamp>` backup of the config and its presets (newest first); `restore [BACKUP]` puts one back over its original — default is the newest config.ini backup, otherwise any file name as listed or a path relative to the config dir. Restoring the live config passes the same pre-validation gate as a load, and every restore backs up the current state first (so undoing is itself reversible).
 - Five bundled presets mirroring TUNING.md in `presets.example/` (balanced, fast, precise, cruising, snappy — the four vertical feel keys each); copy them into `/etc/veloscroll/presets/`.
+- `save` now snapshots every daemon key (currently all 25), not just the ramp keys and scroll-mode flags: the button bindings (`SCROLL_BTN`/`SCROLL_BTN_H`/`DISABLED_BTN`) and device selection (`NAME_MATCH`/`DEVICE_MATCH`, incl. `DPI`) are captured too, so a preset can carry a complete machine profile.
+- New per-group load commands alongside `loadfeel`: `loaddistances <name>` (the 4 distance keys), `loadkeys <name>` (the 3 button bindings), `loaddevice <name>` (`NAME_MATCH`/`DEVICE_MATCH`/`DPI`) and `loadscroll <name>` (the 3 scroll-mode flags); `loadall <name>` now applies everything present except the key and device groups. A load never touches keys outside its group — skipped keys are listed with the command that would apply them, so partial or older preset files work as-is with every command.
+- Multiple operations in one invocation: any number of `COMMAND NAME` pairs (each with its own preset name) run in order, e.g. `veloscroll_preset.py loadfeel fast loaddistances quiet`; a failure stops the rest while earlier operations stay applied and undoable via `restore`.
 
 #### Tuning aid (`veloscroll_tuning_helper.py`)
 
@@ -34,7 +37,7 @@ All notable changes to VeloScroll are documented in this file.
 
 #### Documentation
 
-- README: new Presets section under "Customize & reload" (usage, tier semantics incl. the scroll-mode flags, backup/pruning behavior, optional scoped sudoers rule) and key-table rows for `TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`; TLDR and SCROLL_BTN_H docs mention the new modes; DE-agnostic shortcut binding guidance. New "Tuning aid: veloscroll_tuning_helper.py" section with the stop-daemon → measure → edit-config workflow and sample output. "Finding your device name & activation button" now calls the two discovery scripts instead of inline snippets.
+- README: new Presets section under "Customize & reload" (usage, per-group load semantics — distance/feel/key/device/scroll plus `loadall` and multi-operation invocations — backup/pruning behavior, optional scoped sudoers rule) and key-table rows for `TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`; TLDR and SCROLL_BTN_H docs mention the new modes; DE-agnostic shortcut binding guidance. New "Tuning aid: veloscroll_tuning_helper.py" section with the stop-daemon → measure → edit-config workflow and sample output. "Finding your device name & activation button" now calls the two discovery scripts instead of inline snippets.
 - TUNING.md: `VERTICAL_H` note in the horizontal section. config.ini.example: logging/latency sections moved to end, comment cleanups, and a first-class `DISABLED_BTN = none` entry (previously only mentioned inside the SCROLL_BTN_H comment).
 
 
