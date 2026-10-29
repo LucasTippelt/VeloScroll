@@ -155,12 +155,15 @@ VeloScroll doesn't care where events come from — any evdev input node that adv
    ```
  Then point it at your mouse (set `DEVICE_MATCH` to its USB ID pair and `DPI` to its current DPI; see [Finding your device name & activation button](#finding-your-device-name--activation-button))
 
-4. If your Desktop Environment has per Device Pointer settings:
+4. **IF YOU ARE UNSURE ABOUT THIS, SKIP THIS STEP. It's not required**.
+   
+If your Desktop Environment has per Device Pointer settings:
 Seed the per-device pointer settings via your desktop environment's guide (if present) so that `veloscroll-mouse` starts out feeling exactly like your real mouse (**run as your user, not root**). If your desktop environment is not yet supported with `veloroll_seed.py` instructions, don't worry (we will come back to this in Step 7).
+
 5. Install `veloscroll.service` as a root system unit by copying it into `/etc/systemd/system/`
 6. Run `sudo systemctl daemon-reload` and enable  with `sudo systemctl enable --now veloscroll`
 7. Verify — `journalctl -u veloscroll` should show a line like `grabbed <path> <device name>`. 
-**If step 4 applied to you (you have per device pointer settings and no `veloroll_seed.py` support)**, go into your system settings and change `veloscroll-mouse` settings to your liking (once, should get saved by your DE). 
+*If step 4 applied to you (you have per device pointer settings and no `veloroll_seed.py` support)*, go into your system settings and change `veloscroll-mouse` settings to your liking (once, should get saved by your DE). 
 8. Tweak `/etc/veloscroll/config.ini` to your preference. See [config.ini keys (hot-reloaded)](#configini-keys-hot-reloaded)
 
 Follow your desktop environment's guide end-to-end for the full commands and explanations:
