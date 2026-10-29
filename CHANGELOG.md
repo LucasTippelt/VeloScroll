@@ -2,6 +2,25 @@
 
 All notable changes to VeloScroll are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+#### Core daemon (`veloscroll.py`)
+
+- `OUT_SMOOTH_H`: per-axis rate-follow speed for horizontal velocity scrolling; unset or `none` falls back to the vertical value, like every other `_H` key (the latency model stays vertical-only by design).
+
+#### Preset helper (`veloscroll_preset.py`)
+
+- New stdlib-only CLI helper for named presets of the 12 ramp keys: `save <name>` snapshots all 12 into `<config dir>/presets/<name>.ini` (horizontal keys only when explicitly set, so an unset axis keeps its vertical fallback); `loadfeel <name>` applies only the 8 feel keys present in the preset; `loadall <name>` additionally applies the physical distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) — routine preset swaps can't silently change a user's ramp distances.
+- Loads are pre-validated with the daemon's own parsing/validation (single source of truth via importing veloscroll), written atomically (temp file + `os.replace`) after a `config.ini.bak-<timestamp>` backup, and backups pruned per `MAX_BACKUPS` — the same knob as `veloscroll_seed.py`. Unknown preset keys are warned about and ignored; no-op loads write nothing.
+- Recovery commands: `backups` lists every `.bak-<timestamp>` backup of the config and its presets (newest first); `restore [BACKUP]` puts one back over its original — default is the newest config.ini backup, otherwise any file name as listed or a path relative to the config dir. Restoring the live config passes the same pre-validation gate as a load, and every restore backs up the current state first (so undoing is itself reversible).
+- Five bundled presets mirroring TUNING.md in `presets.example/` (balanced, fast, precise, cruising, snappy — the four vertical feel keys each); copy them into `/etc/veloscroll/presets/`.
+
+#### Documentation
+
+- README: new Presets section under "Customize & reload" (usage, tier semantics, backup/pruning behavior, optional scoped sudoers rule, per-DE keybinding recipes) and an `OUT_SMOOTH_H` row in the key table; TUNING.md gains a one-command preset pointer and mentions `OUT_SMOOTH_H`.
+
 ## [1.0] - 2026-10-29
 
 Initial release.

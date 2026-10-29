@@ -1,6 +1,6 @@
 # TUNING — feel presets (starting points)
 
-Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`), organized by use case. To apply a preset, set those four keys in `/etc/veloscroll/config.ini`; changes hot-reload within ~2 s — verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key).
+Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`), organized by use case. To apply a preset, set those four keys in `/etc/veloscroll/config.ini`; changes hot-reload within ~2 s — verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key). Or apply one of the five bundled presets (`presets.example/{balanced,fast,precise,cruising,snappy}.ini`, copy into `/etc/veloscroll/presets/`) in one command — e.g. `sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast` (see README "Presets"). The bundled presets carry the four feel keys only, so your distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) stay per-user — use `save`/`loadall` if you want them in a preset.
 
 ## Presets
 
@@ -42,7 +42,7 @@ For the full key list with tuning hints, see [Customize & reload](README.md#cust
 
 ## Horizontal scrolling (optional)
 
-The presets above tune the vertical ramp. If you use `SCROLL_BTN_H`, horizontal scrolling reuses those same values unless overridden by the per-axis variants: `DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`. Each key falls back independently to its vertical counterpart when unset or set to `none` — e.g. setting only `DEADZONE_IN_H` changes just the horizontal deadzone while the rest of the ramp stays vertical. To give horizontal scrolling a different feel, pick one of the cases above and set that case's values as the corresponding `*_H` keys (all hot-reload like the vertical ones).
+The presets above tune the vertical ramp. If you use `SCROLL_BTN_H`, horizontal scrolling reuses those same values unless overridden by the per-axis variants: `DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`, `OUT_SMOOTH_H`. Each key falls back independently to its vertical counterpart when unset or set to `none` — e.g. setting only `DEADZONE_IN_H` changes just the horizontal deadzone while the rest of the ramp stays vertical. To give horizontal scrolling a different feel, pick one of the cases above and set that case's values as the corresponding `*_H` keys (all hot-reload like the vertical ones).
 
 ## A note on DPI
 

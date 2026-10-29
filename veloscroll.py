@@ -21,8 +21,8 @@ from evdev import UInput, ecodes as e
 # within ~2 s and survives updates, while local edits here are lost (or conflict)
 # on the next update and require a manual restart anyway. These values only act as
 # fallbacks for keys that are missing or empty in config.ini — change them solely if
-# you maintain a local fork of this project for personal use. The three seed-script constants at the end of
-# the list (DE_WM / VIRTUAL_NAME / MAX_BACKUPS) are intentionally not in config.ini;
+# you maintain a local fork of this project for personal use. The three helper-script constants at the end of
+# the list (DE_WM / VIRTUAL_NAME for veloscroll_seed.py, MAX_BACKUPS shared with veloscroll_preset.py) are intentionally not in config.ini;
 # see the Advanced notes under "Customize & reload" in the README.
 
 
@@ -36,7 +36,7 @@ DISABLED_BTN = None                 # a button that gets disabled
                                     # If you do NOT want a disabled button, set "none" here 
 SCROLL_BTN_H = None                 # optional second hold button for horizontal velocity scrolling; "none" disables the feature
 DPI = 1600                          # your mouse DPI
-DEADZONE_IN = 0.05                  # inches from the start point where nothing scrolls
+DEADZONE_IN = 0.02                  # inches from the start point where nothing scrolls
 FULL_IN = 2.5                       # inches from the start at which MAX_RATE is reached
 MAX_RATE = 130.0                    # notches per second at FULL_IN and beyond
 MIN_RATE = 4.0                      # notches per second at the start (right above deadzone ends)
@@ -46,6 +46,7 @@ FULL_IN_H = None                    # horizontal variant of FULL_IN; None = fall
 MIN_RATE_H = None                   # horizontal variant of MIN_RATE (notches/s); None = fall back to the vertical value
 MAX_RATE_H = None                   # horizontal variant of MAX_RATE; None = fall back to the vertical value
 CURVE_H = None                      # horizontal variant of CURVE; None = fall back to the vertical value
+OUT_SMOOTH_H = None                 # horizontal variant of OUT_SMOOTH; None = fall back to the vertical value
 OUT_SMOOTH = 0.8                    # 0..1 how quickly the rate follows the target (lower = smoother, higher = more responsive)
 INVERT = False
 TICK = 0.004                        # ticker loop period in seconds (0.004 s ≈ 250 Hz): how often the scroll rate is recomputed and events are emitted; lower = smoother but more CPU — not a feel setting
@@ -53,7 +54,7 @@ LOG_LEVEL = 2                       # what the daemon logs: 0=errors only, 1=+ev
 LATENCY_LOG = False                 # true: log a computed latency model plus one measured per-second summary line (independent of LOG_LEVEL)
 DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
 VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
-MAX_BACKUPS = -1                    # veloscroll_seed.py only: max number of kcminputrc.bak-* backups to keep; -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup
+MAX_BACKUPS = -1                    # helper-script constant (veloscroll_seed.py + veloscroll_preset.py): max number of .bak-* backups to keep per file family (kcminputrc.bak-*, config.ini.bak-*, preset <name>.ini.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup
 
 
 # --- config.ini layer ---------------------------------------------------------
@@ -65,8 +66,8 @@ MAX_BACKUPS = -1                    # veloscroll_seed.py only: max number of kcm
 CONFIG_PATH = os.environ.get("VELOSCROLL_CONFIG", "/etc/veloscroll/config.ini")  # env override for tests / per-user setups
 DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCROLL_BTN_H",
                "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
-               "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
-               "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG")
+                "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
+                "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG")
 _DEFAULTS = {k: globals()[k] for k in DAEMON_KEYS}   # the code defaults, captured before any .ini overlay; a key absent from the file always falls back to these
 
 
@@ -119,7 +120,7 @@ def _parse_ini_value(key, raw):
         if not 0 <= val <= 3:
             raise ConfigError(f"{key} in {CONFIG_PATH}: must be in the range 0..3 (got {val})")
         return val
-    if key in ("DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H"):
+    if key in ("DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H", "OUT_SMOOTH_H"):
         if raw.lower() == "none":
             return None                   # unset -> fall back to the vertical value at runtime
         try:
@@ -133,7 +134,7 @@ def _parse_ini_value(key, raw):
 
 
 def load_config():
-    """All 21 daemon keys: the code defaults overlaid with non-empty config.ini values.
+    """All 22 daemon keys: the code defaults overlaid with non-empty config.ini values.
 
     Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
     Bad syntax -> all errors collected and raised as one ConfigError."""
@@ -217,6 +218,8 @@ def check_config(v):
             errors.append(f"{max_name} must be >= {min_name} (got {h_max} < {h_min})")
     if v["CURVE_H"] is not None and not v["CURVE_H"] > 0:
         errors.append(f"CURVE_H must be > 0 (got {v['CURVE_H']})")
+    if v["OUT_SMOOTH_H"] is not None and not 0 < v["OUT_SMOOTH_H"] <= 1:
+        errors.append(f"OUT_SMOOTH_H must be in the range (0, 1] (got {v['OUT_SMOOTH_H']})")
     if not 0 < v["OUT_SMOOTH"] <= 1:
         errors.append(f"OUT_SMOOTH must be in the range (0, 1] (got {v['OUT_SMOOTH']})")
     if not is_int(v["SCROLL_BTN"]):
@@ -252,7 +255,7 @@ def _log(level, msg):
 
 
 def apply_values(v):
-    """Assign all 21 keys under the lock; returns [(key, old, new)] for changed keys."""
+    """Assign all 22 keys under the lock; returns [(key, old, new)] for changed keys."""
     global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, _cfg_stat
     changed = []
     with lock:
@@ -563,8 +566,10 @@ def ticker():
                 min_r = MIN_RATE_H if MIN_RATE_H is not None else MIN_RATE
                 max_r = MAX_RATE_H if MAX_RATE_H is not None else MAX_RATE
                 curve = CURVE_H if CURVE_H is not None else CURVE
+                smooth = OUT_SMOOTH_H if OUT_SMOOTH_H is not None else OUT_SMOOTH
             else:
                 dz, full, min_r, max_r, curve = DEADZONE, FULL, MIN_RATE, MAX_RATE, CURVE
+                smooth = OUT_SMOOTH
             if dist <= dz:
                 target = 0.0
             else:
@@ -578,7 +583,7 @@ def ticker():
             if INVERT:
                 target = -target
 
-            rate += (target - rate) * OUT_SMOOTH
+            rate += (target - rate) * smooth
             if abs(rate) < 0.05 and target == 0.0:
                 rate = acc = 0.0
                 continue

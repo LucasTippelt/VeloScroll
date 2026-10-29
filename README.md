@@ -331,13 +331,67 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 | `MAX_RATE_H` | Horizontal variant of MAX_RATE; must be >= the effective horizontal MIN_RATE | Your top horizontal scrolling speed |
 | `MIN_RATE_H` | Horizontal variant of MIN_RATE (notches/second); unset or `none` falls back to the vertical value | The floor of the horizontal ramp; keep > 0 |
 | `CURVE_H` | Horizontal variant of CURVE (ramp shape); unset or `none` falls back to the vertical value | Tune horizontal feel: same semantics as CURVE |
+| `OUT_SMOOTH_H` | Horizontal variant of OUT_SMOOTH; unset or `none` falls back to the vertical value | Tune how quickly the horizontal rate follows: same semantics as OUT_SMOOTH |
 | `OUT_SMOOTH` | 0..1 — how quickly the rate follows the target; lower = smoother, higher = snappier | Lower it if scrolling feels steppy or jumpy |
 | `INVERT` | True/False — flip scroll direction | Set true if your DE has "natural scrolling" enabled |
 | `TICK` | Ticker loop period in seconds; 0.004 s ≈ 250 Hz — how often the scroll rate is recomputed and hi-res events are emitted | Not a feel setting (that's OUT_SMOOTH/MAX_RATE); only lower it if scrolling still looks steppy, at the cost of more CPU |
 | `LOG_LEVEL` | What the daemon writes to its log (`journalctl -u veloscroll`): integer 0..3, higher = more verbose — 0 errors only / 1 +events (grabbed …) / 2 +config detail (default: unknown keys ignored, reload rejected, config reloaded old→new) / 3 +debug | Set 0 on a healthy system for silence; raise to 3 temporarily when debugging device selection. Note: lowering below 2 also hides the `config reloaded:` confirmation line itself |
 | `LATENCY_LOG` | True/False — per-second measured latency summary lines plus a computed model line at startup/config change; independent of LOG_LEVEL (see "Latency & debugging" above) | Debugging only: set true, watch `journalctl -u veloscroll`, then leave it false |
 
-**Starting points:** for `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH`, [TUNING.md](TUNING.md) has five ready-to-paste value sets by use case (balanced, fast, precise, cruising, snappy). They hot-reload like every other key — edit `/etc/veloscroll/config.ini`; applies live within ~2 s; verify with `journalctl -u veloscroll` as below.
+**Starting points:** for `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH`, [TUNING.md](TUNING.md) has five ready-to-paste value sets by use case (balanced, fast, precise, cruising, snappy). They hot-reload like every other key — edit `/etc/veloscroll/config.ini`; applies live within ~2 s; verify with `journalctl -u veloscroll` as below. Or apply them in one command via the preset helper (see [Presets](#presets) below).
+
+</details>
+
+### Presets ###
+
+<details>
+
+<summary>Click here to open/hide.</summary><br/>
+
+`veloscroll_preset.py` switches between named presets of the 12 ramp keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`, `DEADZONE_IN`, `FULL_IN` + their `_H` variants) without hand-editing config.ini. A load is an atomic, pre-validated rewrite of only those keys' lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s:
+
+```bash
+python3 /opt/veloscroll/veloscroll_preset.py save <name>      # snapshot all 12 ramp keys -> /etc/veloscroll/presets/<name>.ini
+python3 /opt/veloscroll/veloscroll_preset.py loadfeel <name>  # apply only the feel keys present in the preset (distance keys ignored even if present)
+python3 /opt/veloscroll/veloscroll_preset.py loadall <name>   # additionally apply the physical distance keys (DEADZONE_IN / FULL_IN + _H)
+python3 /opt/veloscroll/veloscroll_preset.py list             # table of every preset's values (absent = not captured)
+python3 /opt/veloscroll/veloscroll_preset.py backups          # table of every .bak-<timestamp> backup, newest first
+python3 /opt/veloscroll/veloscroll_preset.py restore [BACKUP] # put a backup back over its original (default: the newest config.ini backup)
+```
+
+(On a standard install run these as root — `sudo` or the scoped sudoers rule below; with a per-user `VELOSCROLL_CONFIG`, no root is needed.)
+
+- **Why loads are tiered:** `DEADZONE_IN`/`FULL_IN` (+ `_H`) describe your *physical* setup — how far you move the mouse. A shared "fast" feel preset must not silently change them, so routine swaps use `loadfeel`; only an explicit `loadall` applies distance keys.
+- **Preset files** live in `<config dir>/presets/` (`/etc/veloscroll/presets/` by default; next to your config when using `VELOSCROLL_CONFIG`). The repo bundles the five TUNING.md cases as partial presets (the four vertical feel keys each) in [`presets.example/`](presets.example/) — install with `sudo mkdir -p /etc/veloscroll/presets && sudo cp /opt/veloscroll/presets.example/*.ini /etc/veloscroll/presets/`.
+- **Save capture:** vertical keys are always written (config.ini value, else the built-in default); horizontal keys only when explicitly set in config.ini — so an unset axis keeps its fallback-to-vertical relation on any machine instead of baking a stale number into the preset. Unknown keys in a preset file are warned about and ignored (like unknown config.ini keys).
+- **Backups & pruning:** each load that changes config.ini first writes `config.ini.bak-<timestamp>` (a save-overwrite backs up the preset file as `<name>.ini.bak-*`); both families are pruned per `MAX_BACKUPS`, the same knob as `veloscroll_seed.py` (-1 = unlimited, default — see Advanced notes). A no-op load (values already equal) writes nothing and makes no backup.
+- **Recovery:** `backups` lists every backup of the config and its presets; `restore [BACKUP]` puts one back over its original — with no argument that's the newest config.ini backup, otherwise any file name exactly as listed (or a path relative to the config dir). Restoring the live config passes the same pre-validation gate as a load, so it can never write a config the daemon would reject; and every restore backs up the current state first, so undoing is itself reversible.
+- **Permissions:** `/etc/veloscroll` is root-owned, so on the standard install run it via sudo — or add a scoped passwordless rule for that one binary only (validate with `visudo -cf` before installing):
+
+  ```text
+  # /etc/sudoers.d/veloscroll-preset
+  Cmnd_Alias VELOSCROLL_PRESET = /opt/veloscroll/veloscroll_preset.py
+  <user> ALL=(root) NOPASSWD: VELOSCROLL_PRESET
+  ```
+
+  This grants root for that single command only (any of its subcommands). With a per-user `VELOSCROLL_CONFIG` setup the helper needs no root at all.
+
+**Shortcut switching (optional).** Bind a preset load to anything you can bind — press it, then verify with `journalctl -u veloscroll`:
+
+- **KDE Plasma:** System Settings → Keyboard → Custom Shortcuts → New/Global Shortcut → Command/URL → `/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast`. Tested: no.
+- **GNOME (custom keybinding via gsettings):**
+
+  ```bash
+  gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \
+      "@as ['org.gnome.settings-daemon.plugins.media-keys.keybindings.veloscroll-fast']"
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.keybindings.veloscroll-fast name 'VeloScroll: fast'
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.keybindings.veloscroll-fast command \
+      '/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast'
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.keybindings.veloscroll-fast binding '<Super>F1'
+  ```
+
+  Tested: no.
+- **Sway/i3:** `bindsym BTN_9 exec /usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast` on an unused side/top button — such buttons already pass through to the OS (the virtual mouse advertises every standard button code), so no keyboard is required. Tested: no.
 
 </details>
 
@@ -347,11 +401,11 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 
 <summary>Click here to open/hide.</summary><br/>
 
-Three constants at the top of `veloscroll.py` belong to `veloscroll_seed.py` and are intentionally not in config.ini. Only touch them if you maintain a fork or run an unusual setup — like every edit to veloscroll.py, changes need a restart (`sudo systemctl restart veloscroll`) and will be lost (or conflict) on the next update:
+`DE_WM` and `VIRTUAL_NAME` at the top of `veloscroll.py` belong to `veloscroll_seed.py`, and `MAX_BACKUPS` is shared with the preset helper (`veloscroll_preset.py`) — all three are intentionally not in config.ini. Only touch them if you maintain a fork or run an unusual setup — like every edit to veloscroll.py, changes need a restart (`sudo systemctl restart veloscroll`) and will be lost (or conflict) on the next update:
 
 - `DE_WM` — which pointer-settings backend the seed script uses; supported values live in its backend registry (`BACKENDS`, currently only `kde-plasma`; per-DE guides: [docs-desktop/](docs-desktop/)). An unknown value makes the seed exit with an error listing the supported ones.
 - `VIRTUAL_NAME` — name of the virtual device (default `veloscroll-mouse`), advertised together with your real mouse's USB IDs so per-device pointer rules apply to it automatically; the seed script looks for exactly this name, so keep the default unless you run several daemon instances side by side.
-- `MAX_BACKUPS` — max number of `kcminputrc.bak-*` backups the seed keeps (only relevant on DEs with per-device settings); -1 = unlimited (default), N ≥ 1 = keep only the newest N after each run that writes a backup.
+- `MAX_BACKUPS` — max number of `.bak-*` backups kept per file family: the seed's `kcminputrc.bak-*` (only relevant on DEs with per-device settings) and the preset helper's `config.ini.bak-*` / `<name>.ini.bak-*`; -1 = unlimited (default), N ≥ 1 = keep only the newest N after each run that writes a backup. Not hot-reloadable — like every other veloscroll.py constant, changes need a restart.
 
 Also:
 
