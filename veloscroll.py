@@ -27,7 +27,7 @@ from evdev import UInput, ecodes as e
 
 
 NAME_MATCH = "Fallback"             # fallback selector (used when DEVICE_MATCH is None): case-insensitive substring of the device name
-DEVICE_MATCH = 0x46d, 0x4093        # RECOMMENDED selector: overrides NAME_MATCH when set, so per-device pointer rules apply to the virtual mouse automatically. Use
+DEVICE_MATCH = None                 # RECOMMENDED selector: overrides NAME_MATCH when set, so per-device pointer rules apply to the virtual mouse automatically. Use
                                     #   a USB ID pair like (0x46d, 0xc084) — stable across reboots/ports (`ls -l /dev/input/by-id`, or see README), or
                                     #   for two identical mice: a stable path string "/dev/input/by-id/usb-..." / ".../by-path/..." (port-pinned)
 SCROLL_BTN = e.BTN_SIDE             # the button that enables veloscroll when pressed
