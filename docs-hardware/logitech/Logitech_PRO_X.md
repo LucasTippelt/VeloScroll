@@ -71,7 +71,7 @@ path = "/dev/input/eventX"  # replace with your mouse's node from the list above
 dev = evdev.InputDevice(path)
 print("press each side button once; Ctrl-C to stop")
 for ev in dev.read_loop():
-    if ev.type == 1:
+    if ev.type == 1:   # EV_KEY only
         print(ev.code, ev.value)
 EOF
 ```

@@ -74,7 +74,14 @@ sudo python3 -c "import evdev; [print(p, '->', d.name, hex(d.info.vendor), hex(d
 
 **Rare edge case: Two of the same mouse** share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that while several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
 
-To find the activation button code, open your device and print every event — press the candidate side buttons and read off their codes (Ctrl-C to stop):
+To find the activation button code, open your device and print every key event it emits — press the candidate side buttons and read off their codes (movement/scroll events are filtered out; Ctrl-C to stop):
+Press all the buttons on your mouse once and verify that no codes outside the range of 256–287 are reported. Expected outputs are something like:
+
+```
+272 0
+273 1
+274 1
+```
 
 ```bash
 sudo python3 - <<'EOF'
@@ -83,7 +90,8 @@ path = "/dev/input/eventX"  # replace with your mouse's node from the list above
 dev = evdev.InputDevice(path)
 print("press the candidate side buttons; Ctrl-C to stop")
 for ev in dev.read_loop():
-    print(ev.type, ev.code, ev.value)
+    if ev.type == 1:   # EV_KEY only
+        print(ev.code, ev.value)
 EOF
 ```
 
@@ -100,7 +108,7 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE` or `SCROLL_BTN = 275`). Set these in config.ini, not in veloscroll.py.
+The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use decimal code over the bare name (e.g. `SCROLL_BTN = 275` and `SCROLL_BTN = BTN_SIDE`). Set these in config.ini, not in veloscroll.py.
 
 ### Mice with more buttons than these Buttons ###
 
@@ -115,8 +123,7 @@ VeloScroll gives each button at most one role; every other event is forwarded to
 - **`DISABLED_BTN`** — optionally a second code that is swallowed entirely (does nothing); set `none` to disable this feature.
 - **All remaining buttons pass through as-is**, whatever their codes.
 
-Note the virtual device only advertises seven button capabilities — `BTN_LEFT`, `BTN_RIGHT`, `BTN_MIDDLE`, `BTN_SIDE`, `BTN_EXTRA`, `BTN_FORWARD`, `BTN_BACK` (the `cap` dict at the top of veloscroll.py). The kernel still delivers events for other codes to your compositor, but standard desktops only map a handful of button codes, so extra buttons on many-button mice — top/DPI buttons or media keys, often reported as `BTN_TASK`, `BTN_5`–`BTN_9` or keyboard/media keycodes — may do nothing. To make such a button work under veloscroll you must add its code to the `EV_KEY` list in `cap` at the top of `veloscroll.py`, then restart (`sudo systemctl restart veloscroll`) — a deliberate exception to the config.ini-only rule below, since it cannot be expressed as a config key; expect to re-apply this edit after updates.
-
+The virtual device advertises every standard mouse button code (0x100–0x11F: `BTN_MISC`/`BTN_0`–`BTN_9` through `BTN_TASK`, the `cap` dict at the top of veloscroll.py), so extra side/top buttons on many-button mice — DPI or back/forward keys reported as e.g. `BTN_SIDE`, `BTN_EXTRA`, `BTN_TASK`, `BTN_5`–`BTN_9` — pass through and work without any code edits. Only events outside that range (e.g. keyboard/media keycodes, or gamepad codes ≥ 0x130) are not advertised, so such buttons may do nothing. This is fine — it's not expected for mice to  send these (gaming mice with dedicated media/macro keys sometimes report them as keyboard keycodes); if your mouse actually uses something outside this range (decimal 256–287), feel free to open an issue.
 - **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini`, not in veloscroll.py.**
 
 </details>
@@ -132,7 +139,7 @@ VeloScroll doesn't care where events come from — any evdev input node that adv
 - Point your selector at the *virtual* node, not the physical one — a `NAME_MATCH` fragment of the remapper's device name is the stable option (uinput devices get no USB `by-id`/`by-path` links on most systems, and bare `/dev/input/eventN` numbers change across reboots).
 - If your selector also matches the physical mouse (the remapper's forwarding clone keeps the source's name and often its USB IDs), veloscroll grabs the virtual node and logs periodic `device busy` lines for the physical one the remapper holds — harmless but noisy.
 - Start order: enable the remapper before starting veloscroll, so it wins the grab on the physical mouse; a remapper started later is picked up automatically on the next ~2 s scan (no restart).
-- `SCROLL_BTN`/`DISABLED_BTN` accept any code the remapper emits; pass-through buttons are still subject to [the seven advertised button capabilities](#mice-with-more-buttons-than-that); relative motion passes through unscaled, so the same `DPI` value applies.
+- `SCROLL_BTN`/`DISABLED_BTN` accept any code the remapper emits; pass-through mouse buttons work across the full standard button range (0x100–0x11F, see [above](#mice-with-more-buttons-than-these-buttons)); relative motion passes through unscaled, so the same `DPI` value applies.
 
 **Tested: no.** This combination is supported by design but has not been verified end-to-end with input-remapper or any other remapper — report what you find back in an issue/PR.
 

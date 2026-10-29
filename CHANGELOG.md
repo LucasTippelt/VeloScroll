@@ -14,8 +14,8 @@ Initial release.
 - Compositor-independent operation via `/dev/input` (evdev) + `/dev/uinput`, so behavior is identical under X11, Wayland, and any desktop environment.
 - Configurable velocity ramp: `DEADZONE_IN`, `FULL_IN`, `MIN_RATE`, `MAX_RATE`, `CURVE` (ramp shape), `OUT_SMOOTH` (rate smoothing), `TICK` (~250 Hz ticker).
 - Optional horizontal velocity scrolling via a second hold button (`SCROLL_BTN_H`), emitting hi-res wheel events, with per-axis overrides (`DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`) that fall back to the vertical values.
-- `DISABLED_BTN`: optionally swallow a button so it does nothing.
-- All other buttons pass through unchanged; the virtual device (`veloscroll-mouse`) advertises seven standard button capabilities.
+- `DISABLED_BTN`: optionally swallow a button so it does nothing. Not set by default.
+- All other buttons pass through unchanged; the virtual device (`veloscroll-mouse`) advertises every standard mouse button code (0x100–0x11F: `BTN_MISC`/`BTN_0`–`BTN_9` through `BTN_TASK`) for maximum compatability.
 - Device selection: `DEVICE_MATCH` (exact USB ID pair or stable path string) with `NAME_MATCH` as case-insensitive substring fallback; supports feeding another tool's virtual device (e.g. input-remapper), but this is currently untested.
 - Supervisor loop with hotplug support: a matching device plugged in after startup is picked up within ~2 s, no restart needed; on grab failure the daemon logs `device busy` and keeps retrying until the device frees up.
 

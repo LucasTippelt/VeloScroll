@@ -466,9 +466,7 @@ if _cfg_load_info is not None:
     _log(1, f"config loaded from {path} ({n} override(s))")
 
 cap = {
-    e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE, e.BTN_SIDE,
-                e.BTN_EXTRA,  
-                e.BTN_FORWARD, e.BTN_BACK],
+    e.EV_KEY: list(range(0x100, 0x120)),   # all standard mouse button codes (BTN_MISC/BTN_0-BTN_9 .. BTN_TASK + reserved): maximal pass-through compatibility
     e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL, e.REL_HWHEEL,
                e.REL_WHEEL_HI_RES, e.REL_HWHEEL_HI_RES],
 }

@@ -40,7 +40,7 @@ sudo python3 -c "import evdev; [print(p, '->', d.name, hex(d.info.vendor), hex(d
 
 **Two of the same mouse:** identical twins share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that while several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
 
-To find the activation button code, open your device and print every event — press the candidate side buttons and read off their codes (Ctrl-C to stop):
+To find the activation button code, open your device and print every key event it emits — press the candidate side buttons and read off their codes (movement/scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
 sudo python3 - <<'EOF'
@@ -49,7 +49,8 @@ path = "/dev/input/eventX"  # replace with your mouse's node from the list above
 dev = evdev.InputDevice(path)
 print("press the candidate side buttons; Ctrl-C to stop")
 for ev in dev.read_loop():
-    print(ev.type, ev.code, ev.value)
+    if ev.type == 1:   # EV_KEY only
+        print(ev.code, ev.value)
 EOF
 ```
 Note the button(s) you want to use for vertical/horizontal scrolling down. Decimal is easiest (the number, e.g. 275).
