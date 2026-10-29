@@ -34,7 +34,7 @@ List all input devices with their USB IDs (uses the evdev package you already in
 sudo python3 -c "import evdev; [print(p, '->', d.name, hex(d.info.vendor), hex(d.info.product)) for p in evdev.list_devices() if (d := evdev.InputDevice(p))]"
 ```
 
-- **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above).
+- **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above and note these down for the next step. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above).
 - `NAME_MATCH` is a simpler fallback: any case-insensitive substring of your mouse's name from that list (e.g. `"Logitech Pro X"`); it is only used when `DEVICE_MATCH` is None, so make sure no other device shares the fragment or set `DEVICE_MATCH`.
 - Alternative for names without Python: `/sys/class/input/event*/device/name`; stable symlinks with IDs: `ls -l /dev/input/by-id`.
 
@@ -52,7 +52,7 @@ for ev in dev.read_loop():
     print(ev.type, ev.code, ev.value)
 EOF
 ```
-
+Note the button(s) you want to use for vertical/horizontal scrolling down. Decimal is easiest (the number, e.g. 275).
 Common button keycodes (`ev.type` 1 = EV_KEY):
 
 | Button | Code | evdev constant |
@@ -66,9 +66,8 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE`) — set these in config.ini, not in veloscroll.py.
+The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = 275`) — set these in config.ini, not in veloscroll.py.
 
-- **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini` (not in `veloscroll.py`).**
 
 ## Step 4 — Configure the daemon
 
@@ -81,7 +80,7 @@ sudo mkdir -p /etc/veloscroll && sudo cp /opt/veloscroll/config.ini.example /etc
 Set, in the `[veloscroll]` section:
 
 - `DEVICE_MATCH` to your mouse's USB ID pair from Step 3 (e.g. `DEVICE_MATCH = 0x46d, 0xc084`),
-- `SCROLL_BTN` to the button code you found in Step 3 (e.g. `BTN_SIDE`),
+- `SCROLL_BTN` to the button code you found in Step 3 (e.g. `275`),
 - `DPI` to your mouse's *current* DPI setting — not its maximum.
 
 No restart needed: the daemon picks up changes within ~2 s and grabs the mouse automatically. Verify with `journalctl -u veloscroll` — a `config reloaded:` line (if any value differs from the built-in default) followed by `grabbed <path> <device name>`.
