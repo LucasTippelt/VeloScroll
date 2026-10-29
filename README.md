@@ -1,6 +1,6 @@
 # VeloScroll
 
-Variable-velocity scrolling for Linux mice: hold a button, move the mouse, and scroll at a speed proportional to how far you have moved from the press point.
+Variable-velocity scrolling for Linux mice: hold/click a button, move the mouse, and scroll at a speed proportional to how far you have moved from the press point.
 
 ## Documentation
 
