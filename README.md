@@ -358,17 +358,20 @@ There is no automatic update mechanism — when a new version is released, you h
 2. Update the code in `/opt/veloscroll`:
 
    ```bash
-   sudo git -C /opt/veloscroll pull origin main    # or check out a specific tag/commit if you want to Rollback
+   sudo git -C /opt/veloscroll pull origin main    
    ```
+
+   or check out a specific tag/commit if you want to Rollback.
 
 3. If the release changed `veloscroll.service`, copy it to `/etc/systemd/system/` again and run `sudo systemctl daemon-reload`.
 4. Restart (code changes never hot-reload — only config.ini does) and verify:
 
    ```bash
    sudo systemctl restart veloscroll
-   journalctl -u veloscroll    # expect a fresh "config loaded from ..." and "grabbed <path> <device name>"
+   journalctl -u veloscroll -n 10   
    ```
-
+   
+Expect systemd printing the newest Version (like `Veloscroll vX.Y`), a fresh "config loaded from ..." and "grabbed <path> <device name>"
 Your `/etc/veloscroll/config.ini` lives outside the repo and survives step 2 untouched — unknown keys are ignored with a warning, removed keys fall back to built-in defaults. That is also why all configuration belongs in config.ini: local edits to `veloscroll.py` are lost or conflict on every update (see [Customize & reload](#customize--reload) above). To roll back, check out the previous commit in `/opt/veloscroll` and repeat step 4.
 
 ## Tested ##
