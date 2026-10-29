@@ -23,89 +23,6 @@ The primary install model runs as a root system unit → none needed. If you run
 2) If the daemon can't grab, it logs `device busy` and keeps retrying until the device frees up.
 3) You might need to enable options like smooth scrolling/high res scrolling in Apps that support those (like browsers or certain terminals) 
 
-## Latency & debugging ##
-
-<details>
-
-<summary>Click here to open/hide.</summary><br/>
-
-Where does time go when you hold the button? The pipeline, and what each segment is responsible for:
-
-```
-mouse → kernel evdev → veloscroll run() thread → ticker (TICK, default 250 Hz) → uinput veloscroll-mouse → compositor → app
-└─────────── input delivery ───────────┘└──────────── daemon: ticker + emit ────────────┘└──────── out of scope ────────┘
-```
-
-- **Input delivery** — USB polling interval, kernel scheduling delays, and any CPU work before the daemon's read loop runs. Measured from the kernel event timestamp to arrival in the daemon (`input p50/p95/max`).
-- **Daemon (ticker + emit)** — rate smoothing, tick quantization, and the `/dev/uinput` write cost (`tick period`, `overrun_max`, `press->emit`, `crossing->emit`, `uinput_write_max`).
-- **Compositor → app** — rendering, frame pacing, and in-app scroll handling. Not observable from the daemon; if scrolling still looks laggy with healthy lines below, look here (frame rate, smooth-scroll settings in the app).
-
-### Theoretical latency (model) ###
-
-<details open>
-
-<summary>Click here to open/hide.</summary><br/>
-
-A model computed purely from config (`TICK`, `OUT_SMOOTH`, `MIN_RATE`) — the design-inherent floor, not a measurement. With T = TICK and S = OUT_SMOOTH:
-
-- **Smoothing time constant** τ = T / (−ln(1 − S)) — how quickly the emitted rate follows your target speed. Default: ≈ 2.5 ms.
-- **Response to sustained movement** (step change in target): ~T/2 + τ to reach 63% of the new rate, ~T/2 + 3τ for 95% (T/2 = average tick quantization delay). Defaults: ~4.5 ms / ~9.5 ms.
-- **First emit after deadzone crossing**: simulated from the real ticker recurrence at MIN_RATE — with defaults the first notch lands on the very next tick, ≈ T/2 + (n−1)·T ≈ 2–6 ms (one tick).
-
-Excluded from the model: USB polling/kernel delivery (covered by the measured `input` metric), deadzone travel time (how long *you* take to move past the deadzone — user-t), and compositor/app rendering. Real movement changes the target continuously, so t₆₃/t₉₅ are estimates for a step change; treat all of these numbers as model values, never as measurements.
-
-</details>
-
-### Enabling the measured lines ###
-
-<details open>
-
-<summary>Click here to open/hide.</summary><br/>
-
-Set `LATENCY_LOG = True` in `/etc/veloscroll/config.ini`, then watch:
-
-```bash
-journalctl -u veloscroll -f
-```
-
-Hot-reloads like every other key (no restart). While there is activity, one summary line appears per second; a model line appears at startup and whenever `LATENCY_LOG` or any of `TICK`/`OUT_SMOOTH`/`MIN_RATE` changes. The lines are int of `LOG_LEVEL`.
-
-Sample output:
-
-```
-latency model: tick=4.0ms tau=2.5ms -> 63% response ~4.5ms, 95% ~9.5ms; first emit after deadzone ~2-6ms (1 tick) [TICK/OUT_SMOOTH/MIN_RATE]
-latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun_max=0.3ms overruns=1 | press->emit=7.8ms crossing->emit=3.9ms (n=3) | uinput_write_max=0.4ms
-```
-
-| Field | Meaning / typical value |
-| --- | --- |
-| `input p50/p95/max` | kernel timestamp → daemon arrival over the last 1 s; p50 ≈ your USB polling interval (1–8 ms); a high p95 points at USB/power/scheduler issues, not the daemon |
-| `tick period` | actual ticker loop period — should sit at ≈ TICK (4.0 ms by default) |
-| `overrun_max`, `overruns` | worst/number of ticks that woke late in the window; an occasional single-digit-ms blip is normal GIL/scheduler noise, sustained overruns mean CPU starvation |
-| `press->emit` | button-down → first scroll event emitted (p50 per hold); includes your deadzone travel time — expect it to be larger than crossing→emit |
-| `crossing->emit` | moment the distance first passed DEADZONE → first emit; isolates daemon latency from how fast you move — healthy systems stay within ~2 ticks (≤ 8 ms at default TICK) |
-| `uinput_write_max` | slowest `/dev/uinput` write+syn in the window; single-digit milliseconds or less is normal |
-
-</details>
-
-
-
-### Troubleshooting ###
-
-<details open>
-
-<summary>Click here to open/hide.</summary><br/>
-
-| Symptom | Likely cause |
-| --- | --- |
-| High `input p95` (p50 fine) | USB power management, flaky cable/port, kernel scheduler load — try another port/cable, disable USB autosuspend for the mouse |
-| `tick period` > TICK or frequent overruns | CPU saturation or GIL stalls (e.g. config reloads, slow uinput writes); check system load and `uinput_write_max` |
-| Large `press->emit`, small `crossing->emit` | Normal: you spent time moving past the deadzone — not a bug; lower DEADZONE_IN if starting feels slow |
-| Healthy daemon lines but scrolling still looks laggy | Compositor/app side (frame pacing, app smooth-scroll settings) — out of scope for this daemon |
-
-</details>
-</details>
-
 ## Dependencies ##
 
 <details open>
@@ -150,11 +67,11 @@ List all input devices with their USB IDs (uses the evdev package you already in
 sudo python3 -c "import evdev; [print(p, '->', d.name, hex(d.info.vendor), hex(d.info.product)) for p in evdev.list_devices() if (d := evdev.InputDevice(p))]"
 ```
 
-- **Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084` (in veloscroll.py the same value uses Python tuple syntax `(0x46d, 0xc084)`), read off from the last two columns above. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above).
+- **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above).
 - `NAME_MATCH` is a simpler fallback: any case-insensitive substring of your mouse's name from that list (e.g. `"Logitech Pro X"`); it is only used when `DEVICE_MATCH` is None, so make sure no other device shares the fragment or set `DEVICE_MATCH`.
 - Alternative for names without Python: `/sys/class/input/event*/device/name`; stable symlinks with IDs: `ls -l /dev/input/by-id`.
 
-**Two of the same mouse:** identical twins share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that while several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
+**Rare edge case: Two of the same mouse** share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that while several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
 
 To find the activation button code, open your device and print every event — press the candidate side buttons and read off their codes (Ctrl-C to stop):
 
@@ -182,7 +99,7 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE`), in veloscroll.py set e.g. `SCROLL_BTN = e.BTN_SIDE`.
+The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE` or `SCROLL_BTN = 275`), in veloscroll.py set e.g. `SCROLL_BTN = e.BTN_SIDE`.
 
 ### Mice with more buttons than these Buttons ###
 
@@ -278,6 +195,89 @@ Run as your desktop user (**not** root — as root it would target `/root/.confi
 
 </details>
 
+</details>
+
+## Latency & debugging ##
+
+<details>
+
+<summary>Click here to open/hide.</summary><br/>
+
+Where does time go when you hold the button? The pipeline, and what each segment is responsible for:
+
+```
+mouse → kernel evdev → veloscroll run() thread → ticker (TICK, default 250 Hz) → uinput veloscroll-mouse → compositor → app
+└─────────── input delivery ───────────┘└──────────── daemon: ticker + emit ────────────┘└──────── out of scope ────────┘
+```
+
+- **Input delivery** — USB polling interval, kernel scheduling delays, and any CPU work before the daemon's read loop runs. Measured from the kernel event timestamp to arrival in the daemon (`input p50/p95/max`).
+- **Daemon (ticker + emit)** — rate smoothing, tick quantization, and the `/dev/uinput` write cost (`tick period`, `overrun_max`, `press->emit`, `crossing->emit`, `uinput_write_max`).
+- **Compositor → app** — rendering, frame pacing, and in-app scroll handling. Not observable from the daemon; if scrolling still looks laggy with healthy lines below, look here (frame rate, smooth-scroll settings in the app).
+
+### Theoretical latency (model) ###
+
+<details open>
+
+<summary>Click here to open/hide.</summary><br/>
+
+A model computed purely from config (`TICK`, `OUT_SMOOTH`, `MIN_RATE`) — the design-inherent floor, not a measurement. With T = TICK and S = OUT_SMOOTH:
+
+- **Smoothing time constant** τ = T / (−ln(1 − S)) — how quickly the emitted rate follows your target speed. Default: ≈ 2.5 ms.
+- **Response to sustained movement** (step change in target): ~T/2 + τ to reach 63% of the new rate, ~T/2 + 3τ for 95% (T/2 = average tick quantization delay). Defaults: ~4.5 ms / ~9.5 ms.
+- **First emit after deadzone crossing**: simulated from the real ticker recurrence at MIN_RATE — with defaults the first notch lands on the very next tick, ≈ T/2 + (n−1)·T ≈ 2–6 ms (one tick).
+
+Excluded from the model: USB polling/kernel delivery (covered by the measured `input` metric), deadzone travel time (how long *you* take to move past the deadzone — user-t), and compositor/app rendering. Real movement changes the target continuously, so t₆₃/t₉₅ are estimates for a step change; treat all of these numbers as model values, never as measurements.
+
+</details>
+
+### Enabling the measured lines ###
+
+<details open>
+
+<summary>Click here to open/hide.</summary><br/>
+
+Set `LATENCY_LOG = True` in `/etc/veloscroll/config.ini`, then watch:
+
+```bash
+journalctl -u veloscroll -f
+```
+
+Hot-reloads like every other key (no restart). While there is activity, one summary line appears per second; a model line appears at startup and whenever `LATENCY_LOG` or any of `TICK`/`OUT_SMOOTH`/`MIN_RATE` changes. The lines are int of `LOG_LEVEL`.
+
+Sample output:
+
+```
+latency model: tick=4.0ms tau=2.5ms -> 63% response ~4.5ms, 95% ~9.5ms; first emit after deadzone ~2-6ms (1 tick) [TICK/OUT_SMOOTH/MIN_RATE]
+latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun_max=0.3ms overruns=1 | press->emit=7.8ms crossing->emit=3.9ms (n=3) | uinput_write_max=0.4ms
+```
+
+| Field | Meaning / typical value |
+| --- | --- |
+| `input p50/p95/max` | kernel timestamp → daemon arrival over the last 1 s; p50 ≈ your USB polling interval (1–8 ms); a high p95 points at USB/power/scheduler issues, not the daemon |
+| `tick period` | actual ticker loop period — should sit at ≈ TICK (4.0 ms by default) |
+| `overrun_max`, `overruns` | worst/number of ticks that woke late in the window; an occasional single-digit-ms blip is normal GIL/scheduler noise, sustained overruns mean CPU starvation |
+| `press->emit` | button-down → first scroll event emitted (p50 per hold); includes your deadzone travel time — expect it to be larger than crossing→emit |
+| `crossing->emit` | moment the distance first passed DEADZONE → first emit; isolates daemon latency from how fast you move — healthy systems stay within ~2 ticks (≤ 8 ms at default TICK) |
+| `uinput_write_max` | slowest `/dev/uinput` write+syn in the window; single-digit milliseconds or less is normal |
+
+</details>
+
+
+
+### Troubleshooting ###
+
+<details open>
+
+<summary>Click here to open/hide.</summary><br/>
+
+| Symptom | Likely cause |
+| --- | --- |
+| High `input p95` (p50 fine) | USB power management, flaky cable/port, kernel scheduler load — try another port/cable, disable USB autosuspend for the mouse |
+| `tick period` > TICK or frequent overruns | CPU saturation or GIL stalls (e.g. config reloads, slow uinput writes); check system load and `uinput_write_max` |
+| Large `press->emit`, small `crossing->emit` | Normal: you spent time moving past the deadzone — not a bug; lower DEADZONE_IN if starting feels slow |
+| Healthy daemon lines but scrolling still looks laggy | Compositor/app side (frame pacing, app smooth-scroll settings) — out of scope for this daemon |
+
+</details>
 </details>
 
 ## Switching mice ##
