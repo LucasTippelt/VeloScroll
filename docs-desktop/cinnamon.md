@@ -63,9 +63,9 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE`), in veloscroll.py set e.g. `SCROLL_BTN = e.BTN_SIDE`.
+The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE`) — set these in config.ini, not in veloscroll.py.
 
-- **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini`, or directly in veloscroll.py.**
+- **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini` (not in `veloscroll.py`).**
 
 ## Step 4 — Configure the daemon
 
@@ -83,7 +83,7 @@ Set, in the `[veloscroll]` section:
 
 No restart needed: the daemon picks up changes within ~2 s and grabs the mouse automatically. Verify with `journalctl -u veloscroll` — a `config reloaded:` line (if any value differs from the built-in default) followed by `grabbed <path> <device name>`.
 
-Everything else has a working default; for all tunables and tuning hints see [Customize & reload](../README.md#customize--reload) in the README.
+Everything else has a working default; for all tunables and tuning hints see [Customize & reload](../README.md#customize--reload) in the README. All configuration happens in `/etc/veloscroll/config.ini` — do not edit `veloscroll.py`, since local edits are lost on the next update.
 
 ## Step 5 — Pointer settings (nothing to do)
 
@@ -114,3 +114,14 @@ i.e. `grabbed <path> <device name>`. That's it — from here on, use the section
 ## Switching mice on Cinnamon
 
 Follow the general checklist in [README → Switching mice](../README.md#switching-mice). There is no Cinnamon-specific step: pointer settings are global and keep applying to `veloscroll-mouse` as-is, so nothing gets reset and no config accumulates — just update `DEVICE_MATCH`/`DPI` (and re-check `SCROLL_BTN`) in `/etc/veloscroll/config.ini` and verify the new `grabbed ...` line.
+
+## Updating
+
+There is no automatic update mechanism; when a new version is released:
+
+1. **Verify what changed first** — the daemon runs as root, so review the release notes / `git log --oneline` and any unfamiliar diff before running it.
+2. Update the code: `sudo git -C /opt/veloscroll pull origin main` (or check out a specific tag/commit). If you ever edited `veloscroll.py` locally, this step loses or conflicts with those edits — which is why all configuration belongs in `/etc/veloscroll/config.ini`.
+3. If the release changed `veloscroll.service`, re-copy it into `/etc/systemd/system/` and run `sudo systemctl daemon-reload`.
+4. Restart and verify: `sudo systemctl restart veloscroll`, then `journalctl -u veloscroll` should show a fresh `grabbed <path> <device name>`.
+
+Your `/etc/veloscroll/config.ini` is outside the repo and survives step 2 untouched; to roll back, check out the previous commit in `/opt/veloscroll` and repeat step 4. Full details: [README → Updating](../README.md#updating).

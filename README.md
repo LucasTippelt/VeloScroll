@@ -6,6 +6,7 @@
 - While you hold the button, moving the mouse scrolls at a speed proportional to your distance from the press point.
 - When you release it, the mouse behaves exactly as normal. 
 - It works under X11 and Wayland alike.
+- **All configuration lives in `/etc/veloscroll/config.ini`** — hot-reloaded within ~2 s and survives updates. Do not edit `veloscroll.py` for your settings (see [Customize & reload](#customize--reload)).
 
 ## Compatibility ##
 
@@ -99,7 +100,7 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE` or `SCROLL_BTN = 275`), in veloscroll.py set e.g. `SCROLL_BTN = e.BTN_SIDE`.
+The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = BTN_SIDE` or `SCROLL_BTN = 275`). Set these in config.ini, not in veloscroll.py.
 
 ### Mice with more buttons than these Buttons ###
 
@@ -114,9 +115,9 @@ VeloScroll gives each button at most one role; every other event is forwarded to
 - **`DISABLED_BTN`** — optionally a second code that is swallowed entirely (does nothing); set `none` to disable this feature.
 - **All remaining buttons pass through as-is**, whatever their codes.
 
-Note the virtual device only advertises seven button capabilities — `BTN_LEFT`, `BTN_RIGHT`, `BTN_MIDDLE`, `BTN_SIDE`, `BTN_EXTRA`, `BTN_FORWARD`, `BTN_BACK` (the `cap` dict at the top of veloscroll.py). The kernel still delivers events for other codes to your compositor, but standard desktops only map a handful of button codes, so extra buttons on many-button mice — top/DPI buttons or media keys, often reported as `BTN_TASK`, `BTN_5`–`BTN_9` or keyboard/media keycodes — may do nothing. To make such a button work under veloscroll, add its code to the `EV_KEY` list in `cap` (a veloscroll.py edit, so restart afterwards: `sudo systemctl restart veloscroll`).
+Note the virtual device only advertises seven button capabilities — `BTN_LEFT`, `BTN_RIGHT`, `BTN_MIDDLE`, `BTN_SIDE`, `BTN_EXTRA`, `BTN_FORWARD`, `BTN_BACK` (the `cap` dict at the top of veloscroll.py). The kernel still delivers events for other codes to your compositor, but standard desktops only map a handful of button codes, so extra buttons on many-button mice — top/DPI buttons or media keys, often reported as `BTN_TASK`, `BTN_5`–`BTN_9` or keyboard/media keycodes — may do nothing. To make such a button work under veloscroll you must add its code to the `EV_KEY` list in `cap` at the top of `veloscroll.py`, then restart (`sudo systemctl restart veloscroll`) — a deliberate exception to the config.ini-only rule below, since it cannot be expressed as a config key; expect to re-apply this edit after updates.
 
-- **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini`, or directly in veloscroll.py.**
+- **Set `DEVICE_MATCH` to your mouse's USB ID pair from the list above (or fall back to a unique name fragment in `NAME_MATCH`) and your preferred scroll button to `SCROLL_BTN` — in `/etc/veloscroll/config.ini`, not in veloscroll.py.**
 
 </details>
 
@@ -191,7 +192,7 @@ Run as your desktop user (**not** root — as root it would target `/root/.confi
 
 `--apply-only` and `--remove-stale-config` are combinable in one run — apply happens first, then removal. All modes are idempotent; re-running is always safe.
 
-**Backups:** a backup of the config file (`~/.config/kcminputrc.bak-<timestamp>`) is written only when seed or `--remove-stale-config` actually changes it — so **on KDE Plasma only** (the only backend with per-device settings; on other desktops veloscroll never writes any config file, hence no backups), and not by runs where nothing changed nor by `--apply-only`. Each backup keeps the previous state recoverable; cap how many are kept with `MAX_BACKUPS` in veloscroll.py (default -1 = keep all).
+**Backups:** a backup of the config file (`~/.config/kcminputrc.bak-<timestamp>`) is written only when seed or `--remove-stale-config` actually changes it — so **on KDE Plasma only** (the only backend with per-device settings; on other desktops veloscroll never writes any config file, hence no backups), and not by runs where nothing changed nor by `--apply-only`. Each backup keeps the previous state recoverable; cap how many are kept with `MAX_BACKUPS`, a seed-script constant at the top of veloscroll.py that is intentionally not hot-reloadable (default -1 = keep all — see the Advanced notes under [Customize & reload](#customize--reload)).
 
 </details>
 
@@ -290,9 +291,11 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 
 ## Customize & reload ##
 
-- Two config sources; per key, a non-empty value in `/etc/veloscroll/config.ini` overrides the default at the top of `/opt/veloscroll/veloscroll.py`.
-- **Editing `/etc/veloscroll/config.ini` is the recommended option.**
-- A missing or empty key falls back to the veloscroll.py default — every config.ini key exists there as its fallback.
+**Do not edit `veloscroll.py` to change your settings.** Every daemon tunable can be set in `/etc/veloscroll/config.ini`, which is hot-reloaded within ~2 s and lives outside the repo — so your configuration survives updates. Local edits to `veloscroll.py` are lost (or conflict) on the next update, and require a manual restart anyway.
+
+- Two config sources; per key, a non-empty value in `/etc/veloscroll/config.ini` overrides the built-in default at the top of `/opt/veloscroll/veloscroll.py`.
+- **Editing `/etc/veloscroll/config.ini` is the only supported way to configure the daemon.**
+- A missing or empty key falls back to the built-in default — every config.ini key exists in veloscroll.py as its fallback.
 
 ### config.ini keys (hot-reloaded) ###
 
@@ -303,7 +306,7 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 | Key | Meaning / units | Tuning hint |
 | --- | --- | --- |
 | `NAME_MATCH` | Case-insensitive substring of your mouse's name that selects it — used only when DEVICE_MATCH is None (fallback) | Use a short unique fragment from the device list above; if any other device shares it, prefer DEVICE_MATCH; **If you want to pipe another virtual device into VeloScroll this is the recommended option** |
-| `DEVICE_MATCH` | **Recommended for physical device** precise selector that overrides NAME_MATCH: an exact USB ID pair (`0x46d, 0xc084` in config.ini / `(0x46d, 0xc084)` in veloscroll.py) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice | Set it to your mouse's USB IDs — stable across reboots/ports and lets per-device pointer rules apply automatically; see[Finding your device name & activation button](#finding-your-device-name--activation-button) |
+| `DEVICE_MATCH` | **Recommended for physical device** precise selector that overrides NAME_MATCH: an exact USB ID pair (`0x46d, 0xc084`) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice | Set it to your mouse's USB IDs — stable across reboots/ports and lets per-device pointer rules apply automatically; see[Finding your device name & activation button](#finding-your-device-name--activation-button) |
 | `SCROLL_BTN` | Key code of the button to hold for scrolling (evdev name like `BTN_SIDE`, or decimal code, e.g. 275) | Find with the interactive snippet above; names are `evdev.ecodes.BTN_*` |
 | `SCROLL_BTN_H` | Optional second button to hold for horizontal velocity scrolling — driven by mouse X movement (emits REL_HWHEEL/REL_HWHEEL_HI_RES), using the vertical ramp unless overridden by the horizontal keys; evdev name or decimal code, or `none` to disable (default) | Must differ from SCROLL_BTN and DISABLED_BTN; INVERT flips both axes — see hardware docs for direction notes |
 | `DISABLED_BTN` | Key code that is swallowed and does nothing, or `none` to disable this feature | Set `none` if you don't want to disable a button |
@@ -328,29 +331,45 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 
 </details>
 
-### veloscroll.py-only constants (restart required) ###
+### Advanced notes (not needed for normal use) ###
 
 <details>
 
 <summary>Click here to open/hide.</summary><br/>
 
-| Variable | Meaning / units | Tuning hint |
-| --- | --- | --- |
-| `DE_WM` | Desktop environment/WM selector for the pointer-settings backend used by veloscroll_seed.py; supported values live in the seed script's backend registry (`BACKENDS`, currently only `kde-plasma`) — per-DE guides: [docs-desktop/](docs-desktop/) | Only change it if you add a new backend; an unknown value makes the seed script exit with an error listing the supported ones |
-| `VIRTUAL_NAME` | Name of the virtual device — advertised together with your real mouse's USB IDs so per-device pointer rules apply to it automatically | Only change it if you run several daemon instances side by side (the seed script looks for `veloscroll-mouse`) |
-| `MAX_BACKUPS` (only relevant if your DE makes `veloscroll_seed.py` create .bak files, i.e. you have Per Device instead of global mouse settings) | veloscroll_seed.py only — max number of `kcminputrc.bak-*` backup files to keep; -1 = unlimited (default), N ≥ 1 = keep only the newest N after each run that writes a backup | Set e.g. 5 if you don't want backup files accumulating in ~/.config |
+Three constants at the top of `veloscroll.py` belong to `veloscroll_seed.py` and are intentionally not in config.ini. Only touch them if you maintain a fork or run an unusual setup — like every edit to veloscroll.py, changes need a restart (`sudo systemctl restart veloscroll`) and will be lost (or conflict) on the next update:
 
-- Edits to veloscroll.py require a restart:
+- `DE_WM` — which pointer-settings backend the seed script uses; supported values live in its backend registry (`BACKENDS`, currently only `kde-plasma`; per-DE guides: [docs-desktop/](docs-desktop/)). An unknown value makes the seed exit with an error listing the supported ones.
+- `VIRTUAL_NAME` — name of the virtual device (default `veloscroll-mouse`), advertised together with your real mouse's USB IDs so per-device pointer rules apply to it automatically; the seed script looks for exactly this name, so keep the default unless you run several daemon instances side by side.
+- `MAX_BACKUPS` — max number of `kcminputrc.bak-*` backups the seed keeps (only relevant on DEs with per-device settings); -1 = unlimited (default), N ≥ 1 = keep only the newest N after each run that writes a backup.
 
-  ```bash
-  sudo systemctl restart veloscroll
-  journalctl -u veloscroll
-  ```
+Also:
 
 - Thanks to the supervisor loop, a matching device plugged in *after* startup is picked up automatically — no restart needed for hotplug.
 - For tests or per-user setups you can point the daemon at another file: `VELOSCROLL_CONFIG=/path/to/config.ini python3 veloscroll.py`.
 
 </details>
+
+## Updating ##
+
+There is no automatic update mechanism — when a new version is released, you have to fetch it yourself and restart the daemon:
+
+1. **Verify what changed first.** The daemon runs as root, so treat an update like installing any other software: read the release notes / `git log --oneline` for the incoming commits, check whether `veloscroll.service`, dependencies (`python3-evdev`), or behavior changed, and review any diff you don't recognize before running it.
+2. Update the code in `/opt/veloscroll`:
+
+   ```bash
+   sudo git -C /opt/veloscroll pull origin main    # or check out a specific tag/commit if you want to Rollback
+   ```
+
+3. If the release changed `veloscroll.service`, copy it to `/etc/systemd/system/` again and run `sudo systemctl daemon-reload`.
+4. Restart (code changes never hot-reload — only config.ini does) and verify:
+
+   ```bash
+   sudo systemctl restart veloscroll
+   journalctl -u veloscroll    # expect a fresh "config loaded from ..." and "grabbed <path> <device name>"
+   ```
+
+Your `/etc/veloscroll/config.ini` lives outside the repo and survives step 2 untouched — unknown keys are ignored with a warning, removed keys fall back to built-in defaults. That is also why all configuration belongs in config.ini: local edits to `veloscroll.py` are lost or conflict on every update (see [Customize & reload](#customize--reload) above). To roll back, check out the previous commit in `/opt/veloscroll` and repeat step 4.
 
 ## Tested ##
 

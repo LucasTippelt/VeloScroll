@@ -26,7 +26,8 @@ TICK = 0.004
 ; ticker loop period in seconds (0.004 s ≈ 250 Hz); not a feel setting, only lower it if scrolling still looks steppy (more CPU).
 
 ; --- horizontal ramp overrides (optional) ---------------------------------------
-; Per-axis variants of the ramp above, used only while SCROLL_BTN_H is held. Each key falls back to its vertical counterpart when unset or `none`, so you can override just one (e.g. a shorter horizontal deadzone).
+; Per-axis variants of the ramp above, used only while SCROLL_BTN_H is held. Each key falls back to its vertical counterpart when unset 
+; or `none`, so you can override just one (e.g. a shorter horizontal deadzone).
 ;DEADZONE_IN_H = 0.1
 ;FULL_IN_H = 3.0
 ;MIN_RATE_H = 8.0
@@ -56,15 +57,19 @@ LATENCY_LOG = False
 
 DEVICE_MATCH = 0x12d, 0x3456 
 ; recommended precise selector that overrides NAME_MATCH. Accepted syntaxes:
-; = 0x46d, 0x4093        USB ID pair in hex (comma or whitespace separated)
+; = 0x46d, 0x4093        (Preferred) USB ID pair in hex (comma or whitespace separated)
 ; = 1133 16531           the same pair in decimal
 ; = /dev/input/by-id/usb-Logitech_G_Pro_X_Superlight_2-event-mouse    stable path string (two identical mice; pins the USB port)
 ; = none                 fall back to NAME_MATCH (not recommended)
 
 
 SCROLL_BTN = BTN_SIDE
-;key code of the button that enables veloscroll when held: evdev name or decimal code. `none` is not allowed.
+; key code of the button that enables veloscroll when held: evdev name or decimal code 
+; using decimal code from "Finding your device name & activation button" is easiest 
+; `none` is not allowed.
 
 SCROLL_BTN_H = none
-;optional second hold button for HORIZONTAL velocity scrolling: same ramp, driven by mouse X movement
-;(emits REL_HWHEEL / REL_HWHEEL_HI_RES). evdev name or decimal code; `none` disables (default); must differ from SCROLL_BTN/DISABLED_BTN.
+; optional second hold button for HORIZONTAL velocity scrolling: driven by mouse X movement
+; evdev name or decimal code
+; `none` disables (default)
+; must differ from SCROLL_BTN/DISABLED_BTN. (disabled button is legacy, disabled by default)

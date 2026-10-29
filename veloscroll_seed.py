@@ -20,7 +20,7 @@
 #     python3 /opt/veloscroll/veloscroll_seed.py [--name <NAME>] [--apply-only] [--remove-stale-config]
 #
 # Re-run at install time and whenever you change mice (update DEVICE_MATCH in
-# veloscroll.py first).
+# /etc/veloscroll/config.ini first — not veloscroll.py, which updates would overwrite).
 
 import argparse
 import configparser

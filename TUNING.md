@@ -12,7 +12,7 @@ Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_
 | Cruising | 90.0 | 3.0 | 1.2 | 0.65 |
 | Snappy | 160.0 | 8.0 | 1.0 | 1.0 |
 
-**Balanced is the shipped default** (top of `veloscroll.py`, mirrored in `config.ini.example`) — your reference point for "what did I change". This row intentionally tracks those code defaults; if they ever change, update it here too.
+**Balanced is the shipped default** (the built-in fallbacks in `veloscroll.py`, mirrored in `config.ini.example`) — your reference point for "what did I change". This row intentionally tracks those code defaults; if they ever change, update it here too. Apply every tweak via `/etc/veloscroll/config.ini` — do not edit `veloscroll.py`: local edits are lost (or conflict) on the next update.
 
 ## The five cases
 
