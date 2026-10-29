@@ -11,6 +11,7 @@ All notable changes to VeloScroll are documented in this file.
 - `OUT_SMOOTH_H`: per-axis rate-follow speed for horizontal velocity scrolling; unset or `none` falls back to the vertical value, like every other `_H` key (the latency model stays vertical-only by design).
 - `TOGGLE_SCROLL` / `TOGGLE_SCROLL_H`: per-axis choice of how SCROLL_BTN/SCROLL_BTN_H engages velocity scrolling — hold (default: button must stay pressed) or tap-to-toggle (tap to engage, tap again to disengage; releasing does nothing while toggled). While engaged the axis behaves exactly like a held session (cursor frozen, same ramp from the tap point, clamp at FULL[_H]). `TOGGLE_SCROLL_H` unset or `none` falls back to the vertical value, like every other `_H` key; hot-reloading either key resets any in-progress session instead of leaving a stuck latch.
 - `VERTICAL_H`: optional second *vertical* scroll mode for SCROLL_BTN_H — when true, holding the button drives REL_WHEEL/REL_WHEEL_HI_RES from mouse up/down movement using the horizontal ramp values (`*_H` keys), and left/right movement is swallowed (cursor frozen); false (default) keeps today's behavior. `INVERT` flips it like every other axis; hot-reloading it mid-hold resets any in-progress session instead of leaving a stale accumulator behind.
+- `MAX_BACKUPS` default changed from -1 (unlimited) to 5, so routine preset loads and seed runs no longer accumulate `.bak-*` backups forever — only the newest 5 per file family are kept. Affects both helper scripts (`veloscroll_preset.py`, `veloscroll_seed.py`); restore unlimited behavior by editing the `MAX_BACKUPS` constant in `veloscroll.py` (restart required, currently you need to set it in `veloscroll.py` with each update).
 
 #### Preset helper (`veloscroll_preset.py`)
 
@@ -23,7 +24,9 @@ All notable changes to VeloScroll are documented in this file.
 
 #### Documentation
 
-- README: new Presets section under "Customize & reload" (usage, tier semantics, backup/pruning behavior, optional scoped sudoers rule, per-DE keybinding recipes) and an `OUT_SMOOTH_H` row in the key table; TUNING.md gains a one-command preset pointer and mentions `OUT_SMOOTH_H`.
+- README: new Presets section under "Customize & reload" (usage, tier semantics incl. the scroll-mode flags, backup/pruning behavior, optional scoped sudoers rule) and key-table rows for `TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`; TLDR and SCROLL_BTN_H docs mention the new modes; DE-agnostic shortcut binding guidance. 
+- TUNING.md: `VERTICAL_H` note in the horizontal section. config.ini.example: logging/latency sections moved to end, comment cleanups.
+
 
 ## [1.0] - 2026-10-29
 
