@@ -1,5 +1,5 @@
 [Unit]
-Description=Veloscroll v1.0 - hold-button velocity scrolling
+Description=Veloscroll v1.1 - hold-button velocity scrolling
 
 [Service]
 ExecStart=/usr/bin/python3 /opt/veloscroll/veloscroll.py

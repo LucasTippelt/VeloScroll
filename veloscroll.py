@@ -35,6 +35,9 @@ DISABLED_BTN = None                 # a button that gets disabled
                                     # [disabled-btn] optional feature: swallow one button so it does nothing.
                                     # If you do NOT want a disabled button, set "none" here 
 SCROLL_BTN_H = None                 # optional second hold button for horizontal velocity scrolling; "none" disables the feature
+TOGGLE_SCROLL = False               # how SCROLL_BTN engages velocity scrolling: False (default) = hold-to-scroll, the button must stay pressed; True = tap to toggle on, tap again to off
+TOGGLE_SCROLL_H = None              # horizontal variant of TOGGLE_SCROLL for SCROLL_BTN_H; None = fall back to the vertical value
+VERTICAL_H = False                  # True = while SCROLL_BTN_H is held, mouse up/down movement drives a second vertical velocity scroll using the horizontal ramp values (*_H keys); False (default) = left/right movement -> horizontal wheel as today
 DPI = 1600                          # your mouse DPI
 DEADZONE_IN = 0.02                  # inches from the start point where nothing scrolls
 FULL_IN = 2.5                       # inches from the start at which MAX_RATE is reached
@@ -54,7 +57,7 @@ LOG_LEVEL = 2                       # what the daemon logs: 0=errors only, 1=+ev
 LATENCY_LOG = False                 # true: log a computed latency model plus one measured per-second summary line (independent of LOG_LEVEL)
 DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
 VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
-MAX_BACKUPS = -1                    # helper-script constant (veloscroll_seed.py + veloscroll_preset.py): max number of .bak-* backups to keep per file family (kcminputrc.bak-*, config.ini.bak-*, preset <name>.ini.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup
+MAX_BACKUPS = 5                     # helper-script constant (veloscroll_seed.py + veloscroll_preset.py): max number of .bak-* backups to keep per file family (kcminputrc.bak-*, config.ini.bak-*, preset <name>.ini.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup
 
 
 # --- config.ini layer ---------------------------------------------------------
@@ -65,6 +68,7 @@ MAX_BACKUPS = -1                    # helper-script constant (veloscroll_seed.py
 
 CONFIG_PATH = os.environ.get("VELOSCROLL_CONFIG", "/etc/veloscroll/config.ini")  # env override for tests / per-user setups
 DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCROLL_BTN_H",
+               "TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H",
                "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
                 "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
                 "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG")
@@ -105,13 +109,22 @@ def _parse_ini_value(key, raw):
             return int(raw)                   # decimal code, e.g. 275
         except ValueError:
             raise ConfigError(f"{key} in {CONFIG_PATH}: expected an evdev button name (e.g. BTN_SIDE) or a decimal code (got {raw!r})")
-    if key in ("INVERT", "LATENCY_LOG"):
+    if key in ("INVERT", "LATENCY_LOG", "TOGGLE_SCROLL", "VERTICAL_H"):
         low = raw.lower()
         if low in ("true", "yes", "on", "1"):
             return True
         if low in ("false", "no", "off", "0"):
             return False
         raise ConfigError(f"{key} in {CONFIG_PATH}: expected a boolean true/false/yes/no/on/off (got {raw!r})")
+    if key == "TOGGLE_SCROLL_H":
+        if raw.lower() == "none":
+            return None                   # unset -> fall back to the vertical value at runtime
+        low = raw.lower()
+        if low in ("true", "yes", "on", "1"):
+            return True
+        if low in ("false", "no", "off", "0"):
+            return False
+        raise ConfigError(f"{key} in {CONFIG_PATH}: expected a boolean true/false/yes/no/on/off or none (got {raw!r})")
     if key == "LOG_LEVEL":
         try:
             val = int(raw)
@@ -134,7 +147,7 @@ def _parse_ini_value(key, raw):
 
 
 def load_config():
-    """All 22 daemon keys: the code defaults overlaid with non-empty config.ini values.
+    """All 25 daemon keys: the code defaults overlaid with non-empty config.ini values.
 
     Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
     Bad syntax -> all errors collected and raised as one ConfigError."""
@@ -232,6 +245,12 @@ def check_config(v):
         errors.append("SCROLL_BTN_H and SCROLL_BTN must be different button codes")
     elif v["DISABLED_BTN"] is not None and v["SCROLL_BTN_H"] == v["DISABLED_BTN"]:
         errors.append("SCROLL_BTN_H and DISABLED_BTN must be different button codes")
+    if not isinstance(v["TOGGLE_SCROLL"], bool):
+        errors.append(f"TOGGLE_SCROLL must be a boolean true/false (got {v['TOGGLE_SCROLL']!r})")
+    if v["TOGGLE_SCROLL_H"] is not None and not isinstance(v["TOGGLE_SCROLL_H"], bool):
+        errors.append(f"TOGGLE_SCROLL_H must be a boolean true/false or none (got {v['TOGGLE_SCROLL_H']!r})")
+    if not isinstance(v["VERTICAL_H"], bool):
+        errors.append(f"VERTICAL_H must be a boolean true/false (got {v['VERTICAL_H']!r})")
     dm = v["DEVICE_MATCH"]
     valid_dm = (dm is None
                 or (isinstance(dm, tuple) and len(dm) == 2 and all(is_int(x) for x in dm))
@@ -255,12 +274,15 @@ def _log(level, msg):
 
 
 def apply_values(v):
-    """Assign all 22 keys under the lock; returns [(key, old, new)] for changed keys."""
+    """Assign all 25 keys under the lock; returns [(key, old, new)] for changed keys."""
     global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, _cfg_stat
     changed = []
     with lock:
         prev_btn = SCROLL_BTN
         prev_btn_h = SCROLL_BTN_H
+        prev_tog = TOGGLE_SCROLL
+        prev_tog_h = TOGGLE_SCROLL_H
+        prev_vert_h = VERTICAL_H
         startup = _cfg_stat is None            # first apply: model line counts as a change even if values equal the defaults
         for key in DAEMON_KEYS:
             new = v[key]
@@ -271,7 +293,9 @@ def apply_values(v):
         FULL = FULL_IN * DPI
         DEADZONE_H = (DEADZONE_IN_H if DEADZONE_IN_H is not None else DEADZONE_IN) * DPI   # unset H keys fall back to the vertical value
         FULL_H = (FULL_IN_H if FULL_IN_H is not None else FULL_IN) * DPI
-        if SCROLL_BTN != prev_btn or SCROLL_BTN_H != prev_btn_h:   # live button swap: don't carry a stuck-held state over (D7)
+        if (SCROLL_BTN != prev_btn or SCROLL_BTN_H != prev_btn_h
+                or TOGGLE_SCROLL != prev_tog or TOGGLE_SCROLL_H != prev_tog_h
+                or VERTICAL_H != prev_vert_h):   # live button swap, scroll-mode switch, or vertical-H mode flip: don't carry a stuck-held/latched state over (D7)
             held = False
             held_v = held_h = False
             offset = h_offset = 0
@@ -301,11 +325,11 @@ DEADZONE_H = (DEADZONE_IN_H if DEADZONE_IN_H is not None else DEADZONE_IN) * DPI
 FULL_H = (FULL_IN_H if FULL_IN_H is not None else FULL_IN) * DPI
 
 held = False
-held_v = False          # SCROLL_BTN currently down
-held_h = False          # SCROLL_BTN_H currently down
+held_v = False          # SCROLL_BTN engaged — physical hold, or latched when TOGGLE_SCROLL is true
+held_h = False          # SCROLL_BTN_H engaged — physical hold, or latched when its effective toggle mode (TOGGLE_SCROLL_H falling back to TOGGLE_SCROLL) is true
 mode = "v"              # active axis while held: "v"/"h"; last press wins (LIFO)
 offset = 0              # vertical distance from the press point, in counts
-h_offset = 0            # horizontal distance from the press point, in counts
+h_offset = 0            # H-mode distance from the press point, in counts — REL_X (left/right) normally; REL_Y (up/down) when VERTICAL_H is true
 acc_notch = 0
 ticker_reset = True     # one-shot flag: ticker zeroes rate/acc on next tick (new hold / axis switch)
 lock = threading.Lock()
@@ -576,7 +600,8 @@ def ticker():
                 frac = min(1.0, (dist - dz) / (full - dz))
                 target = min_r * (max_r / min_r) ** (frac ** curve)
             side = 1 if off > 0 else -1
-            if mode == "v":
+            vertical_axis = mode == "v" or VERTICAL_H    # VERTICAL_H: H-mode output follows the primary vertical convention instead of horizontal
+            if vertical_axis:
                 target *= -side                          # mouse up = scroll up — existing convention, untouched
             else:
                 target *= side                           # hand right -> positive REL_HWHEEL ("scroll right") — D4, hardware-verify
@@ -601,7 +626,7 @@ def ticker():
                     if ct is not None:
                         _lat["crossing_emit"].append(now_e - ct)
                     _lat["first_emitted"] = True
-                emit_scroll(hi, mode == "h")
+                emit_scroll(hi, (mode == "h") and not VERTICAL_H)   # VERTICAL_H: H-mode emits vertical wheel events instead of horizontal ones
 
 
 def run(path):
@@ -645,6 +670,40 @@ def run(path):
 
                 if ev.type == e.EV_KEY and (ev.code == SCROLL_BTN or ev.code == SCROLL_BTN_H):
                     is_h = ev.code == SCROLL_BTN_H
+                    tog = TOGGLE_SCROLL                          # effective scroll mode for this axis; unset TOGGLE_SCROLL_H falls back to the vertical value
+                    if is_h and TOGGLE_SCROLL_H is not None:
+                        tog = TOGGLE_SCROLL_H
+                    if tog:                                      # toggle (latched) mode: release edges are ignored, press edges flip engagement on/off
+                        engaged = held_h if is_h else held_v
+                        if ev.value == 1 and not engaged:        # tap -> engage: exactly like a hold-mode press
+                            if is_h:
+                                held_h = True
+                            else:
+                                held_v = True
+                            held = True
+                            mode = "h" if is_h else "v"
+                            offset = h_offset = 0                # fresh accumulators for the activated session
+                            acc_notch = 0                        # never carry partial notches across axes (D5)
+                            ticker_reset = True                  # drop any stale smoothed rate from the previous axis (D5)
+                            if LATENCY_LOG:
+                                _lat_reset_hold()
+                                _lat["press_ts"] = now_mono
+                        elif ev.value == 1 and engaged:          # tap again -> disengage; release edges are no-ops while latched
+                            if is_h: held_h = False
+                            else:    held_v = False
+                            if not (held_v or held_h):
+                                held = False
+                                if LATENCY_LOG:
+                                    _lat["press_ts"] = None      # same as today's plain release
+                            else:                                # other axis still engaged -> reactivate it fresh (D3)
+                                mode = "v" if held_v else "h"
+                                offset = h_offset = 0
+                                acc_notch = 0
+                                ticker_reset = True
+                                if LATENCY_LOG:
+                                    _lat_reset_hold()
+                                    _lat["press_ts"] = None      # fallback session reports crossing->emit only (D8)
+                        continue                                 # toggle mode consumes every edge of this button (repeats included)
                     if ev.value == 1:                                # press -> this button becomes the active axis (LIFO)
                         if is_h:
                             held_h = True
@@ -684,7 +743,7 @@ def run(path):
                         offset = max(-FULL, min(FULL, offset + ev.value))
                         if LATENCY_LOG and _lat["cross_ts"] is None and abs(offset) > DEADZONE:
                             _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
-                    elif mode == "h" and ev.code == e.REL_X:
+                    elif mode == "h" and ev.code == (e.REL_Y if VERTICAL_H else e.REL_X):   # VERTICAL_H: H-mode accumulates up/down movement instead of left/right
                         h_offset = max(-FULL_H, min(FULL_H, h_offset + ev.value))
                         if LATENCY_LOG and _lat["cross_ts"] is None and abs(h_offset) > DEADZONE_H:
                             _lat["cross_ts"] = now_mono          # first push past the deadzone this hold

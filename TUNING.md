@@ -42,7 +42,7 @@ For the full key list with tuning hints, see [Customize & reload](README.md#cust
 
 ## Horizontal scrolling (optional)
 
-The presets above tune the vertical ramp. If you use `SCROLL_BTN_H`, horizontal scrolling reuses those same values unless overridden by the per-axis variants: `DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`, `OUT_SMOOTH_H`. Each key falls back independently to its vertical counterpart when unset or set to `none` — e.g. setting only `DEADZONE_IN_H` changes just the horizontal deadzone while the rest of the ramp stays vertical. To give horizontal scrolling a different feel, pick one of the cases above and set that case's values as the corresponding `*_H` keys (all hot-reload like the vertical ones).
+The presets above tune the vertical ramp. If you use `SCROLL_BTN_H`, horizontal scrolling reuses those same values unless overridden by the per-axis variants: `DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`, `OUT_SMOOTH_H`. Each key falls back independently to its vertical counterpart when unset or set to `none` — e.g. setting only `DEADZONE_IN_H` changes just the horizontal deadzone while the rest of the ramp stays vertical. To give horizontal scrolling a different feel, pick one of the cases above and set that case's values as the corresponding `*_H` keys (all hot-reload like the vertical ones). With `VERTICAL_H = true`, these `_H` values instead drive a second *vertical* velocity scroll on SCROLL_BTN_H (up/down movement, REL_WHEEL output) rather than horizontal.
 
 ## A note on DPI
 

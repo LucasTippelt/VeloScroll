@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# VeloScroll — named presets for the 12 ramp keys (save / loadfeel / loadall / list / backups / restore)
+# VeloScroll — named presets for the 12 ramp keys + 3 scroll-mode flags (save / loadfeel / loadall / list / backups / restore)
 # Copyright (C) 2026 Lucas Tippelt
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Full license: https://www.gnu.org/licenses/gpl-3.0.html
@@ -9,9 +9,9 @@
 # /etc/veloscroll/config.ini — a load is just an atomic, pre-validated rewrite of the
 # preset keys' lines, and the daemon hot-reloads config.ini within ~2 s:
 #
-#     veloscroll_preset.py save <name>      snapshot all 12 ramp keys -> <config dir>/presets/<name>.ini
-#     veloscroll_preset.py loadfeel <name>  apply only the feel keys present in the preset (distance keys ignored even if present)
-#     veloscroll_preset.py loadall <name>   additionally apply the physical distance keys (DEADZONE_IN / FULL_IN + _H)
+#     veloscroll_preset.py save <name>      snapshot all 15 keys (the 12 ramp keys + the 3 scroll-mode flags) -> <config dir>/presets/<name>.ini
+#     veloscroll_preset.py loadfeel <name>  apply only the feel keys present in the preset (distance and scroll-mode keys ignored even if present)
+#     veloscroll_preset.py loadall <name>   additionally apply the physical distance keys (DEADZONE_IN / FULL_IN + _H) and the scroll-mode flags
 #     veloscroll_preset.py list             table of every preset's values
 #     veloscroll_preset.py backups          table of every .bak-<timestamp> backup (config + presets), newest first
 #     veloscroll_preset.py restore [BACKUP] put a backup back over its original (default: the newest config.ini backup)
@@ -40,13 +40,15 @@ from datetime import datetime
 NAME_RE = re.compile(r"[A-Za-z0-9._-]+")   # preset name == file name; blocks path traversal by construction (no separators allowed)
 BAK_RE = re.compile(r"^(?P<orig>.+)\.bak-(?P<ts>\d{8}-\d{6}\d{6})$")   # well-formed backup name == exactly what _backup() writes; fixed-width timestamp, so lexicographic == chronological
 
-# The 12 ramp keys a preset may carry. Fixed list, forward-compatible: extend this tuple
-# plus the parse/validate branches in veloscroll.py when a new ramp key lands.
+# The 15 preset keys a preset may carry: the 12 ramp keys plus the 3 scroll-mode flags. Fixed list, forward-compatible:
+# extend this tuple plus the parse/validate branches in veloscroll.py when a new key lands.
 PRESET_KEYS = ("MAX_RATE", "MIN_RATE", "CURVE", "OUT_SMOOTH",
                "DEADZONE_IN", "FULL_IN",
                "MAX_RATE_H", "MIN_RATE_H", "CURVE_H", "OUT_SMOOTH_H",
-               "DEADZONE_IN_H", "FULL_IN_H")
+               "DEADZONE_IN_H", "FULL_IN_H",
+               "TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H")
 DISTANCE_KEYS = ("DEADZONE_IN", "FULL_IN", "DEADZONE_IN_H", "FULL_IN_H")   # physical setup: loadfeel never applies these
+SCROLL_MODE_KEYS = ("TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H")      # scroll mode (loadall-only): loadfeel never applies these either
 
 
 class PresetError(Exception):
@@ -88,6 +90,11 @@ def _prune_backups(path, max_backups):
             raise PresetError(f"could not delete old backup {f}: {exc}") from exc
         pruned.append(os.path.basename(f))
     return pruned
+
+
+def _pruned_note(pruned, max_backups):
+    # make the reason explicit: these files were deleted because MAX_BACKUPS caps how many backups are kept
+    return ", ".join(pruned) + f" — deleted because MAX_BACKUPS={max_backups} keeps only the newest {max_backups} backup(s)"
 
 
 def _backup(path):
@@ -206,24 +213,24 @@ def _current_values(vs):
 
 
 def cmd_save(vs, name):
-    """Snapshot all 12 ramp keys into presets/<name>.ini; horizontal keys only when explicitly set in config.ini."""
+    """Snapshot all 15 preset keys (the 12 ramp keys + the 3 scroll-mode flags) into presets/<name>.ini; *_H keys (incl. VERTICAL_H) only when explicitly set in config.ini."""
     _check_max_backups(vs)
     preset_dir = _preset_dir(vs.CONFIG_PATH)
     preset_path = os.path.join(preset_dir, name + ".ini")
     current = _current_values(vs)
-    ini_keys = _read_ini_keys(vs.CONFIG_PATH)     # which horizontal keys are explicitly present (non-empty) in config.ini
+    ini_keys = _read_ini_keys(vs.CONFIG_PATH)     # which *_H keys are explicitly present (non-empty) in config.ini
 
     body, captured_h = [], []
     for key in PRESET_KEYS:
         if key.endswith("_H"):
             raw = ini_keys.get(key, "").strip()
-            if not raw:                            # unset axis keeps its fallback-to-vertical relation on any machine instead of baking a stale number
+            if not raw:                            # unset _H key stays local to each machine instead of baking a stale value (ramp keys fall back to vertical; VERTICAL_H keeps its local value / false default)
                 continue
             captured_h.append(key)
         body.append(f"{key} = {_fmt(current[key])}")
 
     text = (f"# VeloScroll preset '{name}' — created by veloscroll_preset.py save "
-            f"(12 ramp keys; horizontal only when set in config.ini)\n"
+            f"(15 keys: 12 ramp + 3 scroll-mode flags; *_H keys only when set in config.ini)\n"
             f"[veloscroll]\n" + "\n".join(body) + "\n")
 
     try:
@@ -244,15 +251,15 @@ def cmd_save(vs, name):
     if backup_path:
         print(f"backup     : {backup_path}")
     if pruned:
-        print(f"pruned     : " + ", ".join(pruned))
+        print("pruned     : " + _pruned_note(pruned, vs.MAX_BACKUPS))
     omitted_h = [k for k in PRESET_KEYS if k.endswith("_H") and k not in captured_h]
     if omitted_h:
-        print("horizontal keys not set in config.ini (kept as vertical fallback): " + ", ".join(omitted_h))
+        print("keys not set in config.ini (omitted — each machine keeps its own value on load; unset *_H ramp keys fall back to their vertical counterparts, VERTICAL_H stays at its local value / false default): " + ", ".join(omitted_h))
     return 0
 
 
 def _cmd_load(vs, name, tier):
-    """Apply preset <name> to config.ini. tier 'feel' = the 8 feel keys only; 'all' = all 12."""
+    """Apply preset <name> to config.ini. tier 'feel' = the 8 feel keys only (distance + scroll-mode keys skipped); 'all' = all 15."""
     _check_max_backups(vs)
     preset_path = os.path.join(_preset_dir(vs.CONFIG_PATH), name + ".ini")
     try:
@@ -270,7 +277,7 @@ def _cmd_load(vs, name, tier):
 
     base = _current_values(vs)                      # dict(_DEFAULTS) <- current config.ini values (import-time overlay)
     merged = dict(base)
-    skipped_distance, unknown = [], []
+    skipped, unknown = [], []
     for key, raw in (cp["veloscroll"].items() if cp.has_section("veloscroll") else ()):
         if key not in PRESET_KEYS:
             unknown.append(key)                     # forward-compat: warn + ignore, like the daemon does with config.ini keys (veloscroll.py:163)
@@ -282,16 +289,16 @@ def _cmd_load(vs, name, tier):
             value = vs._parse_ini_value(key, raw)   # same parse rules as the daemon — no duplicated logic
         except vs.ConfigError as exc:
             raise PresetError(f"{preset_path}: {exc}") from exc
-        if tier == "feel" and key in DISTANCE_KEYS:  # distance keys describe the physical setup — loadfeel never applies them, even when present
-            skipped_distance.append(key)
+        if tier == "feel" and (key in DISTANCE_KEYS or key in SCROLL_MODE_KEYS):  # distance keys describe the physical setup; scroll-mode flags are loadall-only — loadfeel never applies either group, even when present
+            skipped.append(key)
             continue
         merged[key] = value
 
     for key in unknown:
         print(f"warning: unknown key {key} in {preset_path} — ignored", file=sys.stderr)
-    if skipped_distance:
-        print(f"note: distance keys present in '{name}' are not applied by loadfeel (physical setup): "
-              + ", ".join(skipped_distance) + f" — use `veloscroll_preset.py loadall {name}` to apply them")
+    if skipped:
+        print(f"note: keys present in '{name}' that loadfeel does not apply (distance keys describe the physical setup; scroll-mode flags TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H are loadall-only): "
+              + ", ".join(skipped) + f" — use `veloscroll_preset.py loadall {name}` to apply them")
 
     errors = vs.check_config(merged)                # same validation as the daemon's hot-reload — a rejected reload can never happen
     if errors:
@@ -319,7 +326,7 @@ def _cmd_load(vs, name, tier):
     if backup_path:
         print(f"backup     : {backup_path}")
     if pruned:
-        print(f"pruned     : " + ", ".join(pruned))
+        print("pruned     : " + _pruned_note(pruned, vs.MAX_BACKUPS))
     print("the daemon applies the change within ~2 s — verify with: journalctl -u veloscroll")
     return 0
 
@@ -352,7 +359,7 @@ def cmd_list(vs):
     print(f"{'preset':<{name_w}}" + "".join(f" {c:<{w}}" for c, w in cols))
     for n in names:
         print(f"{n:<{name_w}}" + "".join(f" {cell(n, c):<{w}}" for c, w in cols))
-    print("(absent = not captured; unset horizontal keys fall back to vertical)")
+    print("(absent = not captured; unset *_H ramp keys fall back to their vertical counterparts)")
     return 0
 
 
@@ -425,7 +432,7 @@ def cmd_restore(vs, ref=None):
     if backup_path:
         print(f"backup of previous state: {backup_path}")
     if pruned:
-        print("pruned     : " + ", ".join(pruned))
+        print("pruned     : " + _pruned_note(pruned, vs.MAX_BACKUPS))
     if target == os.path.abspath(vs.CONFIG_PATH):
         print("the daemon applies the change within ~2 s — verify with: journalctl -u veloscroll")
     return 0
@@ -434,17 +441,17 @@ def cmd_restore(vs, ref=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="veloscroll_preset.py",
-        description="Named presets for the 12 veloscroll ramp keys (see README 'Presets'). "
-                    "`save` snapshots them; `loadfeel` applies only the feel keys; `loadall` also applies the physical distance keys.")
+        description="Named presets for the 15 veloscroll preset keys — the 12 ramp keys plus the 3 scroll-mode flags TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H (see README 'Presets'). "
+                    "`save` snapshots them; `loadfeel` applies only the feel keys; `loadall` also applies the physical distance keys and the scroll-mode flags.")
     parser.add_argument("--config", metavar="PATH",
                         help="path to config.ini (default: $VELOSCROLL_CONFIG or /etc/veloscroll/config.ini); "
                              "presets live in <config dir>/presets/")
     sub = parser.add_subparsers(dest="command", required=True, metavar="{save,loadfeel,loadall,list,backups,restore}")
-    p_save = sub.add_parser("save", help="snapshot all 12 ramp keys into presets/<name>.ini (horizontal only when set in config.ini)")
+    p_save = sub.add_parser("save", help="snapshot all 15 preset keys (the 12 ramp keys + the 3 scroll-mode flags) into presets/<name>.ini (*_H keys, incl. VERTICAL_H, only when set in config.ini)")
     p_save.add_argument("name", help="preset name [A-Za-z0-9._-]+ — used directly as the file name")
-    p_loadfeel = sub.add_parser("loadfeel", help="apply only the feel keys present in preset <name>; distance keys (DEADZONE_IN/FULL_IN + _H) ignored even if present")
+    p_loadfeel = sub.add_parser("loadfeel", help="apply only the feel keys present in preset <name>; distance keys (DEADZONE_IN/FULL_IN + _H) and scroll-mode flags (TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H) ignored even if present")
     p_loadfeel.add_argument("name", help="preset name [A-Za-z0-9._-]+ — used directly as the file name")
-    p_loadall = sub.add_parser("loadall", help="apply all 12 keys present in preset <name>, including the physical distance keys")
+    p_loadall = sub.add_parser("loadall", help="apply all 15 keys present in preset <name>, including the physical distance keys and the scroll-mode flags")
     p_loadall.add_argument("name", help="preset name [A-Za-z0-9._-]+ — used directly as the file name")
     sub.add_parser("list", help="table of every preset's values (absent = not captured)")
     sub.add_parser("backups", help="table of every .bak-<timestamp> backup (config.ini + preset files), newest first")

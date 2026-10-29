@@ -2,17 +2,21 @@
 
 All notable changes to VeloScroll are documented in this file.
 
-## [Unreleased]
+## [1.1] - 2026-10-30
 
 ### Added
 
 #### Core daemon (`veloscroll.py`)
 
 - `OUT_SMOOTH_H`: per-axis rate-follow speed for horizontal velocity scrolling; unset or `none` falls back to the vertical value, like every other `_H` key (the latency model stays vertical-only by design).
+- `TOGGLE_SCROLL` / `TOGGLE_SCROLL_H`: per-axis choice of how SCROLL_BTN/SCROLL_BTN_H engages velocity scrolling — hold (default: button must stay pressed) or tap-to-toggle (tap to engage, tap again to disengage; releasing does nothing while toggled). While engaged the axis behaves exactly like a held session (cursor frozen, same ramp from the tap point, clamp at FULL[_H]). `TOGGLE_SCROLL_H` unset or `none` falls back to the vertical value, like every other `_H` key; hot-reloading either key resets any in-progress session instead of leaving a stuck latch.
+- `VERTICAL_H`: optional second *vertical* scroll mode for SCROLL_BTN_H — when true, holding the button drives REL_WHEEL/REL_WHEEL_HI_RES from mouse up/down movement using the horizontal ramp values (`*_H` keys), and left/right movement is swallowed (cursor frozen); false (default) keeps today's behavior. `INVERT` flips it like every other axis; hot-reloading it mid-hold resets any in-progress session instead of leaving a stale accumulator behind.
 
 #### Preset helper (`veloscroll_preset.py`)
 
 - New stdlib-only CLI helper for named presets of the 12 ramp keys: `save <name>` snapshots all 12 into `<config dir>/presets/<name>.ini` (horizontal keys only when explicitly set, so an unset axis keeps its vertical fallback); `loadfeel <name>` applies only the 8 feel keys present in the preset; `loadall <name>` additionally applies the physical distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) — routine preset swaps can't silently change a user's ramp distances.
+- Presets now also carry the 2 scroll-mode flags: presets hold all 14 keys, with `TOGGLE_SCROLL` always captured and `TOGGLE_SCROLL_H` only when explicitly set in config.ini (same rule as every other `_H` key). The flags are loadall-only — `loadfeel` skips them like distance keys, so a feel preset can't silently switch how the button engages scrolling.
+- `VERTICAL_H` joins the presets as the 15th key: captured by `save` only when explicitly set in config.ini (same rule as every other `_H` key), and loadall-only with the other scroll-mode flags — `loadfeel` skips it, so a feel preset can't silently switch what SCROLL_BTN_H does.
 - Loads are pre-validated with the daemon's own parsing/validation (single source of truth via importing veloscroll), written atomically (temp file + `os.replace`) after a `config.ini.bak-<timestamp>` backup, and backups pruned per `MAX_BACKUPS` — the same knob as `veloscroll_seed.py`. Unknown preset keys are warned about and ignored; no-op loads write nothing.
 - Recovery commands: `backups` lists every `.bak-<timestamp>` backup of the config and its presets (newest first); `restore [BACKUP]` puts one back over its original — default is the newest config.ini backup, otherwise any file name as listed or a path relative to the config dir. Restoring the live config passes the same pre-validation gate as a load, and every restore backs up the current state first (so undoing is itself reversible).
 - Five bundled presets mirroring TUNING.md in `presets.example/` (balanced, fast, precise, cruising, snappy — the four vertical feel keys each); copy them into `/etc/veloscroll/presets/`.
