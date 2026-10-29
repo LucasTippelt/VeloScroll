@@ -236,11 +236,14 @@ VeloScroll doesn't care where events come from — any evdev input node that adv
    sudo mkdir -p /etc/veloscroll && sudo cp /opt/veloscroll/config.ini.example /etc/veloscroll/config.ini
    ```
  Then point it at your mouse (set `DEVICE_MATCH` to its USB ID pair and `DPI` to its current DPI; see [Finding your device name & activation button](#finding-your-device-name--activation-button))
+
 4. If your Desktop Environment has per Device Pointer settings:
-Seed the per-device pointer settings via your desktop environment's guide (if present) so that `veloscroll-mouse` starts out feeling exactly like your real mouse (**run as your user, not root**).
-5. install `veloscroll.service` as a root system unit — copy it into `/etc/systemd/system/`, then daemon-reload and enable it. This also starts the daemon.
-6. Verify — `journalctl -u veloscroll` should show a line like `grabbed <path> <device name>`.
-7. Tweak `/etc/veloscroll/config.ini` to your preference. See [config.ini keys (hot-reloaded)](#configini-keys-hot-reloaded)
+Seed the per-device pointer settings via your desktop environment's guide (if present) so that `veloscroll-mouse` starts out feeling exactly like your real mouse (**run as your user, not root**). If your desktop environment is not yet supported with `veloroll_seed.py` instructions, don't worry (we will come back to this in Step 7).
+5. Install `veloscroll.service` as a root system unit by copying it into `/etc/systemd/system/`
+6. Run `sudo systemctl daemon-reload` and enable  with `sudo systemctl enable --now veloscroll`
+7. Verify — `journalctl -u veloscroll` should show a line like `grabbed <path> <device name>`. 
+**If step 4 applied to you (you have per device pointer settings and no `veloroll_seed.py` support)**, go into your system settings and change `veloscroll-mouse` settings to your liking (once, should get saved by your DE). 
+8. Tweak `/etc/veloscroll/config.ini` to your preference. See [config.ini keys (hot-reloaded)](#configini-keys-hot-reloaded)
 
 Follow your desktop environment's guide end-to-end for the full commands and explanations:
 
@@ -248,6 +251,7 @@ Follow your desktop environment's guide end-to-end for the full commands and exp
 | --- | --- |
 | KDE Plasma (5/6, X11 or Wayland) | [docs-desktop/kde-plasma.md](docs-desktop/kde-plasma.md) |
 | Fedora Workstation 44 (GNOME) | [docs-desktop/gnome.md](docs-desktop/gnome.md) |
+| Cinnamon | [docs-desktop/cinnamon.md](docs-desktop/cinnamon.md) |
 
 - Seeding is currently supported on KDE Plasma (Wayland) only. *(X11 has Global Pointer Settings)*
 - **On desktop environments with Global Pointer Settings running veloscroll_seed.py is not neccessary** — your pointer settigns should just stay consistent out of the box.
@@ -364,7 +368,7 @@ VeloScroll was tested on the following live ISOs (all x86_64), chosen to cover t
 | Fedora i3 Spin 44 | Raw Xorg + tiling WM, minimal overhead (dnf) |
 | openSUSE Tumbleweed KDE Live (snapshot 20261022) | KWin on a rolling stack, zypper ecosystem |
 | openSUSE Tumbleweed XFCE Live (snapshot 20261022) | XFCE on a rolling stack, zypper ecosystem |
-| Linux Mint 22.3 "Zena" Cinnamon | Classic X11 desktop (apt, Debian-based) |
+| Linux Mint 22.3 "Zena" Cinnamon | Classic X11 desktop (apt, Debian-based) | ✅
 | MX Linux 25.3 Xfce | X11 XFCE, Debian-stable kernel 6.12 — old-kernel compatibility (apt) |
 | Arch Linux 2026.10.01 | Minimal base for Hyprland/Sway/Xorg + newest kernel (pacman) |
 | Pop!_OS 24.04 LTS (COSMIC Epoch 1) | COSMIC — Wayland/EGL compositor, apt base |
