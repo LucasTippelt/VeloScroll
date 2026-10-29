@@ -92,6 +92,10 @@ Everything else has a working default; for all tunables and tuning hints see [Cu
 
 **X11 sessions:** per-device rules don't exist under X11 — System Settings has only *global* pointer settings, which already apply to `veloscroll-mouse`. Running the seed prints `no per-device settings for <name> in kcminputrc — veloscroll-mouse will use system defaults` and changes nothing; that's the expected outcome, not an error. You can skip this step entirely under X11.
 
+<details>
+
+<summary>Click here to expand if you are running Wayland.</summary><br/>
+
 Run this as your desktop user (**not** root — run as root it would target `/root/.config`):
 
 ```bash
@@ -118,6 +122,8 @@ Notes on the output:
 - If `veloscroll-mouse` isn't registered with KWin yet (daemon not running), the live apply is skipped with a note to re-run after starting it; the file copy itself already happened.
 
 If discovery picks the wrong device (e.g. two mice match your selector), select explicitly with `python3 /opt/veloscroll/veloscroll_seed.py --name <NAME>`. If you seeded before veloscroll was first started, re-run this once after starting the daemon so the live apply can find `veloscroll-mouse`. Re-run it whenever you change mice — update `DEVICE_MATCH` in /etc/veloscroll/config.ini first (see [Switching mice on Plasma](#switching-mice-on-plasma) below). To push hand-edited values from `kcminputrc` to a running session without re-seeding, run it with `--apply-only` instead (see [Tuning pointer settings](#tuning-pointer-settings-sensitivityacceleration-mode)).
+
+</details>
 
 ## Step 6 — Verify
 

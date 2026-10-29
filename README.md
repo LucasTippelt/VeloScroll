@@ -222,35 +222,40 @@ VeloScroll doesn't care where events come from — any evdev input node that adv
 
 </details>
 
-## Installation (root system unit) ##
+## Installation (General Guide) ##
 
-<details>
+<details open>
 
 <summary>Click here to open/hide.</summary><br/>
 
-1. Install Python 3 + evdev for your distro (see Dependencies above).
-2. Clone the project to a stable location (`/opt/veloscroll`) and install `veloscroll.service` as a root system unit — copy it into `/etc/systemd/system/`, then daemon-reload and enable it. This also starts the daemon.
-3. Create the config file from the bundled example, then point it at your mouse (set `DEVICE_MATCH` to its USB ID pair and `DPI` to its current DPI; see above):
+1. Install Python 3 + evdev for your distro (see Dependencies above for Distro specific command).
+2. Git Clone the project to a stable location (`/opt/veloscroll`) 
+3. Create the config file from the bundled example:
 
    ```bash
    sudo mkdir -p /etc/veloscroll && sudo cp /opt/veloscroll/config.ini.example /etc/veloscroll/config.ini
    ```
-
-   The daemon picks the file up within ~2 s — no restart needed.
-4. Seed the per-device pointer settings via your desktop environment's guide so that `veloscroll-mouse` starts out feeling exactly like your real mouse (run as your user, not root).
-5. Verify — `journalctl -u veloscroll` should show a line like `grabbed <path> <device name>`.
+ Then point it at your mouse (set `DEVICE_MATCH` to its USB ID pair and `DPI` to its current DPI; see [Finding your device name & activation button](#finding-your-device-name--activation-button))
+4. If your Desktop Environment has per Device Pointer settings:
+Seed the per-device pointer settings via your desktop environment's guide (if present) so that `veloscroll-mouse` starts out feeling exactly like your real mouse (**run as your user, not root**).
+5. install `veloscroll.service` as a root system unit — copy it into `/etc/systemd/system/`, then daemon-reload and enable it. This also starts the daemon.
+6. Verify — `journalctl -u veloscroll` should show a line like `grabbed <path> <device name>`.
+7. Tweak `/etc/veloscroll/config.ini` to your preference. See [config.ini keys (hot-reloaded)](#configini-keys-hot-reloaded)
 
 Follow your desktop environment's guide end-to-end for the full commands and explanations:
 
 | Desktop environment | Guide |
 | --- | --- |
 | KDE Plasma (5/6, X11 or Wayland) | [docs-desktop/kde-plasma.md](docs-desktop/kde-plasma.md) |
+| Fedora Workstation 44 (GNOME) | [docs-desktop/gnome.md](docs-desktop/gnome.md) |
 
-Seeding is currently supported on KDE Plasma only; on other desktops there is no seed step — adjust your global pointer settings once after install so they match how your actual mouse feels (one-time setup). How to make `veloscroll-mouse` feel exactly like your real mouse, and how per-device pointer rules work under the hood, is covered in each guide.
+- Seeding is currently supported on KDE Plasma (Wayland) only. *(X11 has Global Pointer Settings)*
+- **On desktop environments with Global Pointer Settings running veloscroll_seed.py is not neccessary** — your pointer settigns should just stay consistent out of the box.
+- If your Desktop Environment has **Per Device Pointer Settings** and **seeding is not supported**, adjust the pointer settings for the Virtual Device (default name is veloscroll-mouse) in your system settings once after install so they match how your actual mouse feels (one-time setup). 
 
 ### veloscroll_seed.py options ###
 
-<details open>
+<details>
 
 <summary>Click here to open/hide.</summary><br/>
 
@@ -352,7 +357,7 @@ VeloScroll was tested on the following live ISOs (all x86_64), chosen to cover t
 | Ubuntu Desktop 26.04.1 LTS | GNOME/Mutter Wayland + Xorg session (apt) |
 | Kubuntu 26.10 | KDE on the Ubuntu/apt base — KWin Wayland | ✅ 
 | Kubuntu 26.10 | KDE on the Ubuntu/apt base — X11 session  | ✅
-| Fedora Workstation 44 | GNOME/Mutter Wayland + Xorg, newest dnf stack |
+| Fedora Workstation 44 | GNOME/Mutter Wayland + Xorg, newest dnf stack | ✅
 | Fedora KDE Plasma Desktop 44 | KWin Wayland + X11 session, per-device input rules (dnf) |
 | Fedora Sway Spin 44 | wlroots/Sway Wayland (dnf) — no install needed |
 | Fedora XFCE Spin 44 | X11 XFCE on the dnf stack |
