@@ -50,4 +50,4 @@ These four keys need no per-DPI variants: `DEADZONE_IN`/`FULL_IN` are in inches 
 
 ## Starting points, not verified values
 
-These are starting points to tune by feel — they have not been verified on any particular setup or hardware. All four keys hot-reload within ~2 s, so experimenting is cheap; a malformed edit is rejected and the previous values stay in effect (one `config reload rejected` line in `journalctl -u veloscroll`).
+These are starting points to tune by feel — they have not been verified on any particular setup or hardware. All four keys hot-reload within ~2 s, so experimenting is cheap; a malformed edit is rejected and the previous values stay in effect (one `config reload rejected` line in `journalctl -u veloscroll`). For the physical distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) you can measure your real hand movement instead of guessing: run the tuning aid `veloscroll_tuning_helper.py` with the daemon stopped and read off the exact inches where you cross the deadzone and reach full rate (README, "Tuning aid").

@@ -12,6 +12,7 @@ All notable changes to VeloScroll are documented in this file.
 - `TOGGLE_SCROLL` / `TOGGLE_SCROLL_H`: per-axis choice of how SCROLL_BTN/SCROLL_BTN_H engages velocity scrolling — hold (default: button must stay pressed) or tap-to-toggle (tap to engage, tap again to disengage; releasing does nothing while toggled). While engaged the axis behaves exactly like a held session (cursor frozen, same ramp from the tap point, clamp at FULL[_H]). `TOGGLE_SCROLL_H` unset or `none` falls back to the vertical value, like every other `_H` key; hot-reloading either key resets any in-progress session instead of leaving a stuck latch.
 - `VERTICAL_H`: optional second *vertical* scroll mode for SCROLL_BTN_H — when true, holding the button drives REL_WHEEL/REL_WHEEL_HI_RES from mouse up/down movement using the horizontal ramp values (`*_H` keys), and left/right movement is swallowed (cursor frozen); false (default) keeps today's behavior. `INVERT` flips it like every other axis; hot-reloading it mid-hold resets any in-progress session instead of leaving a stale accumulator behind.
 - `MAX_BACKUPS` default changed from -1 (unlimited) to 5, so routine preset loads and seed runs no longer accumulate `.bak-*` backups forever — only the newest 5 per file family are kept. Affects both helper scripts (`veloscroll_preset.py`, `veloscroll_seed.py`); restore unlimited behavior by editing the `MAX_BACKUPS` constant in `veloscroll.py` (restart required, currently you need to set it in `veloscroll.py` with each update).
+- Validation: `SCROLL_BTN` and `DISABLED_BTN` must now be different button codes — previously only the SCROLL_BTN_H conflicts were checked, so a shared code silently let scrolling win over the disable.
 
 #### Preset helper (`veloscroll_preset.py`)
 
@@ -22,10 +23,19 @@ All notable changes to VeloScroll are documented in this file.
 - Recovery commands: `backups` lists every `.bak-<timestamp>` backup of the config and its presets (newest first); `restore [BACKUP]` puts one back over its original — default is the newest config.ini backup, otherwise any file name as listed or a path relative to the config dir. Restoring the live config passes the same pre-validation gate as a load, and every restore backs up the current state first (so undoing is itself reversible).
 - Five bundled presets mirroring TUNING.md in `presets.example/` (balanced, fast, precise, cruising, snappy — the four vertical feel keys each); copy them into `/etc/veloscroll/presets/`.
 
+#### Tuning aid (`veloscroll_tuning_helper.py`)
+
+- New terminal tuning aid for the physical distance keys: with the daemon stopped it exclusively grabs every matching device (full daemon parity) plus a temporary UInput pass-through virtual mouse, and measures real hand movement per hold — in-place distance gauge with the would-be target rate (the daemon's exact ramp formula), a line each time you leave or re-enter the deadzone and each time you cross the full-rate boundary either way, plus a copy-pasteable release summary (elapsed time, peak distance in inches + counts). Movement below/left of the start point is printed negative with a direction label (`(downwards)`/`(upwards)`, `(leftwards)`/`(rightwards)` for horizontal holds without `VERTICAL_H`). No scroll is ever emitted; while held the cursor stays put, between holds the mouse behaves exactly as normal.
+- Reads config.ini hot-reloadable like the daemon (1 s poller mirroring `_maybe_reload_config`): a live edit switches the thresholds mid-session (`config reloaded:` per key), a rejected edit keeps the old values; `--config PATH` overrides the config path like every other helper.
+
+#### Device discovery helpers (`ListDeviceNames.py`, `ListButtonPresses.py`)
+
+- Two standalone scripts replacing the inline snippets in the README's "Finding your device name & activation button" section: `ListDeviceNames.py` lists every `/dev/input/event*` node with its name and USB vendor/product ID pair (for reading off `DEVICE_MATCH`/`NAME_MATCH`; unopenable devices are skipped with a note), and `ListButtonPresses.py 30` opens `/dev/input/event30` (a full path works too) and prints every key event as `code value` while you press buttons, so activation button codes can be read off — movement/scroll events are filtered out, Ctrl-C stops cleanly.
+
 #### Documentation
 
-- README: new Presets section under "Customize & reload" (usage, tier semantics incl. the scroll-mode flags, backup/pruning behavior, optional scoped sudoers rule) and key-table rows for `TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`; TLDR and SCROLL_BTN_H docs mention the new modes; DE-agnostic shortcut binding guidance. 
-- TUNING.md: `VERTICAL_H` note in the horizontal section. config.ini.example: logging/latency sections moved to end, comment cleanups.
+- README: new Presets section under "Customize & reload" (usage, tier semantics incl. the scroll-mode flags, backup/pruning behavior, optional scoped sudoers rule) and key-table rows for `TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`; TLDR and SCROLL_BTN_H docs mention the new modes; DE-agnostic shortcut binding guidance. New "Tuning aid: veloscroll_tuning_helper.py" section with the stop-daemon → measure → edit-config workflow and sample output. "Finding your device name & activation button" now calls the two discovery scripts instead of inline snippets.
+- TUNING.md: `VERTICAL_H` note in the horizontal section. config.ini.example: logging/latency sections moved to end, comment cleanups, and a first-class `DISABLED_BTN = none` entry (previously only mentioned inside the SCROLL_BTN_H comment).
 
 
 ## [1.0] - 2026-10-29

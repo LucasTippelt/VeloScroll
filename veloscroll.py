@@ -245,6 +245,8 @@ def check_config(v):
         errors.append("SCROLL_BTN_H and SCROLL_BTN must be different button codes")
     elif v["DISABLED_BTN"] is not None and v["SCROLL_BTN_H"] == v["DISABLED_BTN"]:
         errors.append("SCROLL_BTN_H and DISABLED_BTN must be different button codes")
+    if v["DISABLED_BTN"] is not None and v["SCROLL_BTN"] == v["DISABLED_BTN"]:
+        errors.append("SCROLL_BTN and DISABLED_BTN must be different button codes")
     if not isinstance(v["TOGGLE_SCROLL"], bool):
         errors.append(f"TOGGLE_SCROLL must be a boolean true/false (got {v['TOGGLE_SCROLL']!r})")
     if v["TOGGLE_SCROLL_H"] is not None and not isinstance(v["TOGGLE_SCROLL_H"], bool):

@@ -56,7 +56,11 @@ SCROLL_BTN_H = none
 ; optional second hold button for HORIZONTAL velocity scrolling: driven by mouse X movement
 ; evdev name or decimal code
 ; `none` disables (default)
-; must differ from SCROLL_BTN/DISABLED_BTN. (disabled button is legacy, disabled by default)
+; must differ from SCROLL_BTN/DISABLED_BTN.
+
+DISABLED_BTN = none
+; key code of a button that is swallowed entirely and does nothing else: evdev name or decimal code
+; `none` disables this feature (default)
 
 ; --- logging -------------------------------------------------------------------
 

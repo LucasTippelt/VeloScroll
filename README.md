@@ -66,7 +66,7 @@ Distro packages:
 List all input devices with their USB IDs (uses the evdev package you already installed):
 
 ```bash
-sudo python3 -c "import evdev; [print(p, '->', d.name, hex(d.info.vendor), hex(d.info.product)) for p in evdev.list_devices() if (d := evdev.InputDevice(p))]"
+sudo python3 /opt/veloscroll/ListDeviceNames.py
 ```
 
 - **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and maybe lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above, depends on how your DE/WM implemented per-device pointer rules).
@@ -85,15 +85,7 @@ Press all the buttons on your mouse once and verify that no codes outside the ra
 ```
 
 ```bash
-sudo python3 - <<'EOF'
-import evdev
-path = "/dev/input/eventX"  # replace with your mouse's node from the list above
-dev = evdev.InputDevice(path)
-print("press the candidate side buttons; Ctrl-C to stop")
-for ev in dev.read_loop():
-    if ev.type == 1:   # EV_KEY only
-        print(ev.code, ev.value)
-EOF
+sudo python3 /opt/veloscroll/ListButtonPresses.py 30     # 30 = the number of your mouse's node from the list above (a full path works too)
 ```
 
 Common button keycodes (`ev.type` 1 = EV_KEY):
@@ -384,6 +376,55 @@ python3 /opt/veloscroll/veloscroll_preset.py restore [BACKUP] # put a backup bac
 
 - Command/URL → `/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel YourPresetName`, test it manually once it might need sudo to write to /etc/veloscroll/config, then just bind this command or a short bash script to your preferred keyboard shortcut however your particular Desktop Environment implements that.
 
+
+</details>
+
+### Tuning aid: veloscroll_tuning_helper.py ###
+
+<details>
+
+<summary>Click here to open/hide.</summary><br/>
+
+`veloscroll_tuning_helper.py` measures your *actual* hand movement so you can set the physical distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) from real distances instead of guesswork, and sanity-check `DPI`, `MAX_RATE`, `MIN_RATE`, `CURVE`. With the daemon stopped it exclusively grabs the configured mouse (all matching devices, full daemon parity) plus a temporary pass-through virtual mouse: while you hold the scroll button the cursor stays put and no scroll is ever emitted; between holds the mouse behaves exactly as normal. Each hold prints an in-place distance gauge with the would-be target rate (the daemon's exact ramp formula), a line each time you leave or re-enter the deadzone and each time you cross the full-rate boundary either way, plus a copy-pasteable release summary. Movement below/left of the start point is negative and gets a direction label (`(downwards)`, `(upwards)` — or `(leftwards)`/`(rightwards)` for horizontal holds without `VERTICAL_H`):
+
+```bash
+sudo systemctl stop veloscroll
+sudo python3 /opt/veloscroll/veloscroll_tuning_helper.py   # --config PATH for a per-user config
+# hold the scroll button and move; read the milestone + summary lines
+# set DEADZONE_IN / FULL_IN (+ _H) in /etc/veloscroll/config.ini to your liking
+sudo systemctl start veloscroll
+```
+
+Sample output (DPI 1600, `DEADZONE_IN = 0.05`, `FULL_IN = 3.0`):
+
+```text
+config: /etc/veloscroll/config.ini (7 override(s))
+note: inch readouts are only as good as the DPI key (DPI = 1600)
+grabbed /dev/input/event4 Logitech G Pro X Superlight 2
+DEADZONE_IN = 0.05 in (80 counts) | FULL_IN = 3 in (4800 counts)
+DEADZONE_IN_H falls back to vertical | FULL_IN_H falls back to vertical
+SCROLL_BTN = BTN_SIDE / 275
+SCROLL_BTN_H = none (horizontal scrolling disabled)
+hold the button and move; Ctrl-C quits
+[v] scroll button pressed (BTN_SIDE / 275)          # hand moves below the start point -> negative readout
+[v] deadzone passed at -0.05 in (-81 counts)
+[v] deadzone re-entered at -0.01 in (-21 counts)
+[v] deadzone passed at -0.06 in (-91 counts)
+[v] -1.32 in from start (-2112 counts) | target 39 notches/s (downwards)
+[v] max-rate reached at -3.00 in (-4800 counts) — further movement clamps here
+[v] max-rate exited at -2.06 in (-3300 counts) — clamping lifted
+[v] max-rate reached at -3.00 in (-4800 counts) — further movement clamps here
+[v] released after 1.3 s — peak -3.0 in (-4800 counts), deadzone crossed, max-rate reached
+[v] scroll button pressed (BTN_SIDE / 275)          # hand moves above the start point -> positive readout
+[v] 0.73 in from start (1163 counts) | target 21 notches/s (upwards)
+[v] released after 0.8 s — peak 0.7 in (1163 counts), deadzone crossed, max-rate not reached
+config reloaded: DEADZONE_IN 0.05->0.2
+veloscroll is not running — restart when done: sudo systemctl start veloscroll
+```
+
+- The gauge (`[v] … | target N notches/s`) updates in place while you hold; the `[h]` lines work the same for `SCROLL_BTN_H` (mouse X movement, or up/down with `VERTICAL_H = true`).
+- config.ini is hot-reloaded mid-session exactly like the daemon: a live edit switches the thresholds immediately (`config reloaded:` line per key), a rejected edit keeps the old values.
+- The helper never starts or stops the daemon and never emits scroll — if the grab fails with `device busy`, stop whatever else holds the mouse (usually the daemon) first, then re-run it.
 
 </details>
 
