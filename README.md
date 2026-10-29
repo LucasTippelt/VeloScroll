@@ -1,9 +1,9 @@
 # VeloScroll #
 ## TLDR ##
 
-- VeloScroll is a small Linux daemon that turns one mouse button into completely-configurable variable-velocity hold-to-scroll.
+- VeloScroll is a small Linux daemon that turns one mouse button into completely-configurable variable-velocity system-wide scrolling.
 - Both default **vertical scrolling** and optional **horizontal scrolling** (activated via a second mouse button) are supported; with `VERTICAL_H = true` that second button becomes a **second vertical scroll** instead (up/down movement, horizontal ramp values).
-- While you hold the button, moving the mouse scrolls at a speed proportional to your distance from the press point.
+- While you hold the button, moving the mouse scrolls at a speed proportional to your distance from the initial press point.
 - When you release it, the mouse behaves exactly as normal. 
 - Optionally configure the button as tap-to-toggle instead of hold via `TOGGLE_SCROLL` (tap again to disengage).
 - It works under X11 and Wayland alike.
@@ -15,11 +15,11 @@
 There is no compositor dependency — the daemon operates below X11/Wayland via `/dev/input`, so behavior is identical under X11, Wayland, and any desktop environment (GNOME/KDE/XFCE/…).
 
 ## Permissions ## 
-The primary install model runs as a root system unit → none needed. If you run it as a normal user instead, the user needs membership in the `input` group plus access to `/dev/uinput` (exact setup varies by distro, more work but better from a security standpoint). 
+The primary install model runs as a root system unit → none needed. If you run it as a normal user instead, the user needs membership in the `input` group plus access to `/dev/uinput` (exact setup varies by distro, non-root setup requires more work but is better from a security standpoint). 
 
 ## Caveats ##
 
-1) Only one process may exclusively grab a device at a time, so depending on your usecase and setup, you can either:
+1) Only one process may exclusively grab a device at a time, so depending on your usecase and setup, you have two options:
 - **close other mouse utilities** (e.g. Logi Options+) before starting
 - **or pass the virtual device of that mouse utility into VeloScroll** (if your specific mouse utility tool creates a virtual device). See [Finding your device name & activation button](#finding-your-device-name--activation-button).
 2) If the daemon can't grab, it logs `device busy` and keeps retrying until the device frees up.
