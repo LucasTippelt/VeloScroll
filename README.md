@@ -4,16 +4,16 @@ Variable-velocity scrolling for Linux mice: hold a button, move the mouse, and s
 
 ## Documentation
 
-All guides live in [`documentation/`](documentation/). Suggested reading order:
+All guides live in [`docs/`](docs/). Suggested reading order:
 
-1. [Install](documentation/INSTALL.md): install, find your device and button, run as a service
-2. [Configuration](documentation/CONFIGURATION.md): every `config.ini` key and the tuning helper
-3. [Presets](documentation/PRESETS.md): save and switch named configurations
+1. [Install](docs/INSTALL.md): install, find your device and button, run as a service
+2. [Configuration](docs/CONFIGURATION.md): every `config.ini` key and the tuning helper
+3. [Presets](docs/PRESETS.md): save and switch named configurations
 
 Reference:
 
-- [Updating](documentation/UPDATING.md): fetch a new release, restart, roll back
-- [Advanced](documentation/ADVANCED.md): fork-level constants and `veloscroll_seed.py` options
+- [Updating](docs/UPDATING.md): fetch a new release, restart, roll back
+- [Advanced](docs/ADVANCED.md): fork-level constants and `veloscroll_seed.py` options
 
 Each guide in the reading order links to the next one at the bottom.
 
@@ -47,11 +47,11 @@ Each guide in the reading order links to the next one at the bottom.
 - **DPI-aware:** You set your mouse's current DPI so distance calculations (in inches) are accurate.
 - **Ticker rate:** `TICK` (default `0.004` s ≈ 250 Hz) controls how often the scroll rate is recomputed and hi-res events are emitted.
 
-See the [Configuration Guide](documentation/CONFIGURATION.md) for the full key reference.
+See the [Configuration Guide](docs/CONFIGURATION.md) for the full key reference.
 
 ### 🎛️ Preset and workflow tools
 
-- **Preset system (`veloscroll_preset.py`):** Save named snapshots of your configuration and load them back. Loads are grouped (`loadfeel`, `loaddistances`, `loadkeys`, `loaddevice`, `loadscroll`), so swapping a "feel" preset doesn't accidentally change your button bindings or device selection. Multiple load groups can be chained in one command. See [Presets](documentation/PRESETS.md).
+- **Preset system (`veloscroll_preset.py`):** Save named snapshots of your configuration and load them back. Loads are grouped (`loadfeel`, `loaddistances`, `loadkeys`, `loaddevice`, `loadscroll`), so swapping a "feel" preset doesn't accidentally change your button bindings or device selection. Multiple load groups can be chained in one command. See [Presets](docs/PRESETS.md).
 - **Tuning assistant (`veloscroll_tuning_helper.py`):** With the daemon stopped, this script exclusively grabs your mouse and measures your actual hand movement. It prints an in-place distance gauge with the would-be target rate, helping you set `DEADZONE_IN` and `FULL_IN` from real distances instead of guesswork.
 - **Device discovery scripts:**
   - `ListDeviceNames.py`: lists all input devices with their USB IDs.
@@ -70,7 +70,7 @@ See the [Configuration Guide](documentation/CONFIGURATION.md) for the full key r
 
 ### 🔧 Debugging and maintenance
 
-- **Latency logging:** Setting `LATENCY_LOG = true` emits per-second summary lines with measured latencies (input p50/p95/max, tick period, press→emit, crossing→emit, `uinput_write_max`) plus a theoretical model line at startup. See [Latency & debugging](documentation/ADVANCED.md#latency--debugging).
+- **Latency logging:** Setting `LATENCY_LOG = true` emits per-second summary lines with measured latencies (input p50/p95/max, tick period, press→emit, crossing→emit, `uinput_write_max`) plus a theoretical model line at startup. See [Latency & debugging](docs/ADVANCED.md#latency--debugging).
 - **Log levels:** `LOG_LEVEL` (0–3) controls verbosity, from errors-only to debug.
 - **Systemd service:** Ships with `veloscroll.service`, a root system unit for automatic restarts. Can also run standalone or as a per-user unit.
 - **Hot-reload for device changes:** Switching mice requires no restart. The daemon applies the new `DEVICE_MATCH` within ~2 seconds and releases the old device automatically.
