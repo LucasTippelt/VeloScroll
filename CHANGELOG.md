@@ -37,9 +37,7 @@ All notable changes to VeloScroll are documented in this file.
 
 #### Documentation
 
-- README: new Presets section under "Customize & reload" (usage, per-group load semantics — distance/feel/key/device/scroll plus `loadall` and multi-operation invocations — backup/pruning behavior, optional scoped sudoers rule) and key-table rows for `TOGGLE_SCROLL`/`TOGGLE_SCROLL_H`/`VERTICAL_H`; TLDR and SCROLL_BTN_H docs mention the new modes; DE-agnostic shortcut binding guidance. New "Tuning aid: veloscroll_tuning_helper.py" section with the stop-daemon → measure → edit-config workflow and sample output. "Finding your device name & activation button" now calls the two discovery scripts instead of inline snippets.
-- TUNING.md: `VERTICAL_H` note in the horizontal section. config.ini.example: logging/latency sections moved to end, comment cleanups, and a first-class `DISABLED_BTN = none` entry (previously only mentioned inside the SCROLL_BTN_H comment).
-
+- New Documentation structure: Short, concise README and seperate docs/ folder for Install, Configuration, Presets, Updating and Advanced Guides
 
 ## [1.0] - 2026-10-29
 
