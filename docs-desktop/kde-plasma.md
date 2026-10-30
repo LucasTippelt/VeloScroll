@@ -1,6 +1,6 @@
 # Install & usage on KDE Plasma
 
-This guide takes you from an empty system to a verified running daemon, end-to-end, on **KDE Plasma 5 or 6** (X11 or Wayland). [VeloScroll](../README.md) is a small Linux daemon that turns one mouse button into variable-velocity hold-to-scroll; the general README covers the project overview, compatibility notes, and all post-install tuning options. Per-device pointer rules are a KWin **Wayland** feature; under X11, System Settings exposes only *global* pointer settings that apply to every mouse, so Step 5 is a no-op there and tuning happens via the global sliders.
+This guide takes you from an empty system to a verified running daemon, end-to-end, on **KDE Plasma 5 or 6** (X11 or Wayland). [VeloScroll](../README.md) is a small Linux daemon that turns one mouse button into variable-velocity hold-to-scroll. It follows the general [installation guide](../docs/INSTALL.md); the steps marked KDE-specific are Step 6 (seeding per-device pointer settings) and a Wayland-only re-run note in Step 9. Per-device pointer rules are a KWin **Wayland** feature; under X11, System Settings exposes only *global* pointer settings that apply to every mouse, so Step 6 is a no-op there and tuning happens via the global sliders.
 
 ## Step 1 — Install dependencies
 
@@ -16,44 +16,50 @@ Distro packages:
 - The script can run standalone without it (python3 veloscroll.py), but the provided install path uses veloscroll.service, a root system unit for automatic restarts — so systemd is needed for that setup.
 - Per-user units (systemctl --user) also work but aren't covered here.
 
-## Step 2 — Clone & install the unit
+## Step 2 — Clone the project
 
 ```bash
 sudo git clone https://github.com/LucasTippelt/VeloScroll /opt/veloscroll
-sudo cp /opt/veloscroll/veloscroll.service /etc/systemd/system/
-sudo systemctl daemon-reload; sudo systemctl enable --now veloscroll
 ```
 
-This also starts the daemon. Until `DEVICE_MATCH` in `/etc/veloscroll/config.ini` points at your mouse (Step 4), it just waits and logs `no matching device yet — waiting`.
-
-## Step 3 — Find your device name & activation button
-
-List all input devices with their USB IDs (uses the evdev package you already installed):
+## Step 3 — Create the config file
 
 ```bash
-sudo python3 -c "import evdev; [print(p, '->', d.name, hex(d.info.vendor), hex(d.info.product)) for p in evdev.list_devices() if (d := evdev.InputDevice(p))]"
+sudo mkdir -p /etc/veloscroll && sudo cp /opt/veloscroll/config.ini.example /etc/veloscroll/config.ini
 ```
 
-- **HIGHLY Recommended: set `DEVICE_MATCH` in `/etc/veloscroll/config.ini` to your mouse's exact USB ID pair** — e.g. `DEVICE_MATCH = 0x46d, 0xc084`, read off from the last two columns above and note these down for the next step. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and lets per-device pointer rules in your DE/WM apply to the virtual mouse automatically (see above).
-- `NAME_MATCH` is a simpler fallback: any case-insensitive substring of your mouse's name from that list (e.g. `"Logitech Pro X"`); it is only used when `DEVICE_MATCH` is None, so make sure no other device shares the fragment or set `DEVICE_MATCH`.
-- Alternative for names without Python: `/sys/class/input/event*/device/name`; stable symlinks with IDs: `ls -l /dev/input/by-id`.
+All settings go in `/etc/veloscroll/config.ini`, **not** `veloscroll.py` — do not edit `veloscroll.py`, since local edits are lost on the next update. Everything else has a working default; for all tunables see [Customize and reload](../docs/CONFIGURATION.md#customize-and-reload).
+
+## Step 4 — Find your device
+
+List all input devices with their USB IDs:
+
+```bash
+sudo python3 /opt/veloscroll/ListDeviceNames.py
+```
+
+Set, in `/etc/veloscroll/config.ini`:
+
+- **HIGHLY Recommended:** `DEVICE_MATCH` to your mouse's exact USB ID pair (the last two columns of the list), e.g. `DEVICE_MATCH = 0x46d, 0xc084`. It selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and may let per-device pointer rules in your DE/WM apply to the virtual mouse automatically.
+- `DPI` to your mouse's *current* DPI setting — not its maximum.
+
+Other options:
+
+- **`NAME_MATCH`** is a simpler fallback: a case-insensitive substring of your mouse's name (e.g. `"Logitech Pro X"`). It is only used when `DEVICE_MATCH` is `None`, so make sure no other device shares the fragment. It is also useful for grabbing virtual devices created by other utilities.
+- **Without Python:** `/sys/class/input/event*/device/name`, or `ls -l /dev/input/by-id` for stable symlinks with IDs.
 
 **Two of the same mouse:** identical twins share one USB ID pair, so use a stable path string in `DEVICE_MATCH` instead — `/dev/input/by-id/usb-...-event-mouse` (only disambiguates if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse`, which pins the mouse to its USB port (keep it plugged into the same port). Note that while several devices match, they are all grabbed and share one virtual mouse — holding the button on either drives scrolling from movement on either.
 
-To find the activation button code, open your device and print every key event it emits — press the candidate side buttons and read off their codes (movement/scroll events are filtered out; Ctrl-C to stop):
+## Step 5 — Find your activation button
+
+Print every key event your device emits (movement/scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
-sudo python3 - <<'EOF'
-import evdev
-path = "/dev/input/eventX"  # replace with your mouse's node from the list above
-dev = evdev.InputDevice(path)
-print("press the candidate side buttons; Ctrl-C to stop")
-for ev in dev.read_loop():
-    if ev.type == 1:   # EV_KEY only
-        print(ev.code, ev.value)
-EOF
+sudo python3 /opt/veloscroll/ListButtonPresses.py XY
 ```
-Note the button(s) you want to use for vertical/horizontal scrolling down. Decimal is easiest (the number, e.g. 275).
+
+`XY` is the node number of your mouse from Step 4 (a full path like `/dev/input/eventX` works too). Press every button once and confirm that **no codes outside 256–287** are reported; if any are, see [Mice with non-standard buttons](../docs/INSTALL.md#mice-with-non-standard-buttons) in the installation guide. Note the button(s) you want to use for vertical/horizontal scrolling down — decimal is easiest (the number, e.g. 275).
+
 Common button keycodes (`ev.type` 1 = EV_KEY):
 
 | Button | Code | evdev constant |
@@ -67,28 +73,11 @@ Common button keycodes (`ev.type` 1 = EV_KEY):
 | BTN_BACK | 278 | `e.BTN_BACK` |
 | BTN_TASK | 279 | `e.BTN_TASK` |
 
-The constants are available as `evdev.ecodes.BTN_*`; in `/etc/veloscroll/config.ini` use the bare name or decimal code (e.g. `SCROLL_BTN = 275`) — set these in config.ini, not in veloscroll.py.
+The constants are available as `evdev.ecodes.BTN_*`; set your choice in `/etc/veloscroll/config.ini`, using either the bare evdev name or a decimal code: e.g. `SCROLL_BTN = 275`.
 
+## Step 6 — Seed per-device pointer settings *(KDE-specific)*
 
-## Step 4 — Configure the daemon
-
-Create the config file from the bundled example (skip this if you already did it during install), then open `/etc/veloscroll/config.ini`:
-
-```bash
-sudo mkdir -p /etc/veloscroll && sudo cp /opt/veloscroll/config.ini.example /etc/veloscroll/config.ini
-```
-
-Set, in the `[veloscroll]` section:
-
-- `DEVICE_MATCH` to your mouse's USB ID pair from Step 3 (e.g. `DEVICE_MATCH = 0x46d, 0xc084`),
-- `SCROLL_BTN` to the button code you found in Step 3 (e.g. `275`),
-- `DPI` to your mouse's *current* DPI setting — not its maximum.
-
-No restart needed: the daemon picks up changes within ~2 s and grabs the mouse automatically. Verify with `journalctl -u veloscroll` — a `config reloaded:` line (if any value differs from the built-in default) followed by `grabbed <path> <device name>`.
-
-Everything else has a working default; for all tunables and tuning hints see [Customize & reload](../README.md#customize--reload) in the README. All configuration happens in `/etc/veloscroll/config.ini` — do not edit `veloscroll.py`, since local edits are lost on the next update.
-
-## Step 5 — Seed per-device pointer settings
+**Wayland, fresh install:** you are seeding before the daemon has started (Steps 7–8), so `veloscroll-mouse` isn't registered with KWin yet and the seed's live apply is skipped — that's expected. Re-run the seed once after Step 8 so the live apply can find `veloscroll-mouse`; the file copy itself already happened.
 
 **X11 sessions:** per-device rules don't exist under X11 — System Settings has only *global* pointer settings, which already apply to `veloscroll-mouse`. Running the seed prints `no per-device settings for <name> in kcminputrc — veloscroll-mouse will use system defaults` and changes nothing; that's the expected outcome, not an error. You can skip this step entirely under X11.
 
@@ -96,7 +85,7 @@ Everything else has a working default; for all tunables and tuning hints see [Cu
 
 <summary>Click here to expand if you are running Wayland.</summary><br/>
 
-Run this as your desktop user (**not** root — run as root it would target `/root/.config`):
+Run `veloscroll_seed.py` ([options](../docs/ADVANCED.md#veloscroll_seedpy-options)) **as your desktop user, not root** — run as root it would target `/root/.config`:
 
 ```bash
 python3 /opt/veloscroll/veloscroll_seed.py
@@ -121,11 +110,23 @@ Notes on the output:
 - If your real mouse has no per-device entry in `kcminputrc` — the normal situation on **X11** sessions (see above) — you get `no per-device settings for <name> in kcminputrc — veloscroll-mouse will use system defaults`.
 - If `veloscroll-mouse` isn't registered with KWin yet (daemon not running), the live apply is skipped with a note to re-run after starting it; the file copy itself already happened.
 
-If discovery picks the wrong device (e.g. two mice match your selector), select explicitly with `python3 /opt/veloscroll/veloscroll_seed.py --name <NAME>`. If you seeded before veloscroll was first started, re-run this once after starting the daemon so the live apply can find `veloscroll-mouse`. Re-run it whenever you change mice — update `DEVICE_MATCH` in /etc/veloscroll/config.ini first (see [Switching mice on Plasma](#switching-mice-on-plasma) below). To push hand-edited values from `kcminputrc` to a running session without re-seeding, run it with `--apply-only` instead (see [Tuning pointer settings](#tuning-pointer-settings-sensitivityacceleration-mode)).
+If discovery picks the wrong device (e.g. two mice match your selector), select explicitly with `python3 /opt/veloscroll/veloscroll_seed.py --name <NAME>`. Re-run it whenever you change mice — update `DEVICE_MATCH` in `/etc/veloscroll/config.ini` first (see [Switching mice on Plasma](#switching-mice-on-plasma) below). To push hand-edited values from `kcminputrc` to a running session without re-seeding, run it with `--apply-only` instead (see [Tuning pointer settings](#tuning-pointer-settings-sensitivityacceleration-mode)).
 
 </details>
 
-## Step 6 — Verify
+## Step 7 — Install the systemd service
+
+```bash
+sudo cp /opt/veloscroll/veloscroll.service /etc/systemd/system/
+```
+
+## Step 8 — Enable and start the service
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now veloscroll
+```
+
+## Step 9 — Verify
 
 ```bash
 journalctl -u veloscroll
@@ -134,10 +135,12 @@ journalctl -u veloscroll
 should show a line like:
 
 ```
-grabbed /dev/input/event4 Logitech G Pro X Superlight 2   (or whatever your device is, see Finding your device name & activation button)
+grabbed /dev/input/event4 Logitech G Pro X Superlight 2   (or whatever your device is, see Steps 4–5)
 ```
 
-i.e. `grabbed <path> <device name>`. That's it — from here on, use the sections below for tuning and switching mice.
+i.e. `grabbed <path> <device name>`. That's it — from here on, use the sections below for tuning and switching mice. Config changes after this are picked up within ~2 s without a restart.
+
+**Wayland:** if you seeded in Step 6 before the daemon started (the normal case with this guide's ordering), re-run `python3 /opt/veloscroll/veloscroll_seed.py` now so the live apply can find `veloscroll-mouse`.
 
 ## Tuning pointer settings (Sensitivity/acceleration mode)
 
@@ -161,22 +164,19 @@ i.e. `grabbed <path> <device name>`. That's it — from here on, use the section
 
 ## Switching mice on Plasma
 
-Follow the general checklist in [README → Switching mice](../README.md#switching-mice). KDE specifics for step 4 (re-running the seed):
+- Update `DEVICE_MATCH` and `DPI` in `/etc/veloscroll/config.ini` to the new mouse's USB ID pair and current DPI.
+- Re-check `SCROLL_BTN` if the new mouse differs (see Step 5).
+- No restart needed — changes are picked up within ~2 s; verify the fresh `grabbed <path> <device name>` line in `journalctl -u veloscroll`.
+
+KDE specifics for re-running the seed:
 
 ### On **Wayland** ###
-- Re-running the seed (Step 5) creates a new `veloscroll-mouse` group for the new mouse's IDs and resets any tweaks you made to `veloscroll-mouse` back to the new real mouse's values.
+- Re-running the seed (Step 6) creates a new `veloscroll-mouse` group for the new mouse's IDs and resets any tweaks you made to `veloscroll-mouse` back to the new real mouse's values.
 - Groups from previous mice accumulate in `kcminputrc` as dead config — remove them with `--remove-stale-config` if desired (see [Stale config](#stale-config)).
 
 ### On **X11** ###
-- No KDE-specific step — the seed is a no-op there, so nothing gets reset and no groups accumulate; just follow the general checklist.
+- No KDE-specific step — the seed is a no-op there, so nothing gets reset and no groups accumulate; just follow the checklist above.
 
 ## Updating
 
-There is no automatic update mechanism; when a new version is released:
-
-1. **Verify what changed first** — the daemon runs as root, so review the release notes / `git log --oneline` and any unfamiliar diff before running it.
-2. Update the code: `sudo git -C /opt/veloscroll pull origin main` (or check out a specific tag/commit). If you ever edited `veloscroll.py` locally, this step loses or conflicts with those edits — which is why all configuration belongs in `/etc/veloscroll/config.ini`.
-3. If the release changed `veloscroll.service`, re-copy it into `/etc/systemd/system/` and run `sudo systemctl daemon-reload`.
-4. Restart and verify: `sudo systemctl restart veloscroll`, then `journalctl -u veloscroll` should show a fresh `grabbed <path> <device name>`.
-
-Your `/etc/veloscroll/config.ini` is outside the repo and survives step 2 untouched; to roll back, check out the previous commit in `/opt/veloscroll` and repeat step 4. Full details: [README → Updating](../README.md#updating).
+Your `/etc/veloscroll/config.ini` is outside the repo and survives updates untouched. Code changes need a restart, not hot-reload — after pulling, re-copy `veloscroll.service` if it changed (`sudo systemctl daemon-reload`) and run `sudo systemctl restart veloscroll`. Full steps: [docs/UPDATING.md](../docs/UPDATING.md).
