@@ -2,7 +2,7 @@
 
 All notable changes to VeloScroll are documented in this file.
 
-## [Unreleased]
+## [v1.2]
 
 ### Added
 
@@ -15,11 +15,7 @@ All notable changes to VeloScroll are documented in this file.
 #### systemd integration (`veloscroll.service`)
 
 - Service unit hardened with sandboxing directives: `NoNewPrivileges`, `ProtectSystem=strict` + `ProtectHome`, `PrivateTmp`, kernel tunables/modules/logs and control-group protection, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, and `RestrictAddressFamilies=AF_UNIX AF_NETLINK` (no networking at all). Crash-loop start limits added (`StartLimitIntervalSec=60` + `StartLimitBurst=5`: five failures within 60 s move the unit to failed state instead of restarting forever — recover with `systemctl reset-failed veloscroll`). As always, re-copy the updated unit into `/etc/systemd/system/` and run `sudo systemctl daemon-reload`.
-
-## [v1.2] - 2026-10-31
-
-### Changed
-
+  
 #### Helper scripts moved to `helpers/`
 
 - All four helper scripts now live in the new `helpers/` directory: `ListButtonPresses.py`, `ListDeviceNames.py`, `veloscroll_seed.py` and `veloscroll_tuning_helper.py`. Only `veloscroll.py` and `veloscroll_preset.py` remain at the repo root. There are no backward-compatibility shims — all paths in docs, comments and tests were updated (e.g. `python3 /opt/veloscroll/helpers/ListDeviceNames.py`, `python3 /opt/veloscroll/helpers/veloscroll_seed.py`).
