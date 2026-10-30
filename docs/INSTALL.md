@@ -29,7 +29,7 @@ VeloScroll needs **Python 3 + evdev**. Install the distro package:
 Clone the repository to a stable location:
 
 ```bash
-sudo git clone <repository-url> /opt/veloscroll
+sudo git clone https://github.com/LucasTippelt/VeloScroll /opt/veloscroll
 ```
 
 ### 3. Create the config file
@@ -53,6 +53,7 @@ Set `DEVICE_MATCH` to your mouse's USB ID pair (the last two columns of the list
 
 ```ini
 DEVICE_MATCH = 0x46d, 0xc084
+DPI = YourDPI
 ```
 
 This is **highly recommended**: it selects exactly one device (stable across reboots and USB ports), avoids grabbing other mice that share a name fragment, and may let per-device pointer rules in your DE/WM apply to the virtual mouse automatically.
@@ -66,10 +67,11 @@ This is **highly recommended**: it selects exactly one device (stable across reb
 Print every key event your device emits (movement and scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
-sudo python3 /opt/veloscroll/ListButtonPresses.py 30
+sudo python3 /opt/veloscroll/ListButtonPresses.py XY
 ```
 
-`30` is your mouse's node number from the device list (a full path works too). Press every button once and verify that **no codes outside 256–287** are reported. Expected output looks like:
+`XY` is your mouse's node number from the device list (a full path works too). Press every button once and verify that **no codes outside 256–287** are reported. If yes, you can skip the "Mice with non-standard buttons" and "Supported button code range" sections.
+Expected output looks something like:
 
 ```
 272 0
@@ -118,7 +120,7 @@ If step 6 applied to you (your desktop has per-device pointer settings and seedi
 
 ### 10. Tweak your configuration
 
-Adjust `/etc/veloscroll/config.ini` to your preference. See the [`config.ini` keys reference](CONFIGURATION.md#configini-keys-hot-reloaded) (settings are **hot-reloaded**, so no restart is needed).
+Adjust `/etc/veloscroll/config.ini` to your preference. See the [`config.ini` keys reference](CONFIGURATION.md#configini-keys-hot-reloaded) (settings are **hot-reloaded**, so no systemctl restart is needed).
 
 ---
 
@@ -134,17 +136,6 @@ Each button can be mapped to at most one role, and the three role codes must be 
 
 All remaining buttons pass through as-is, whatever their codes, subject to the behavior below while a scroll session is active.
 
-### While a scroll session is active
-
-- The cursor stays put.
-- Movement on the active axis is consumed for velocity math.
-- Wheel events from the physical mouse are swallowed.
-- Releasing the button (or tapping it off) restores normal behavior immediately.
-
-### Using both scroll buttons
-
-If both scroll buttons are held at once, the last press owns the active axis. Releasing it reactivates the other fresh (LIFO).
-
 ### Supported button code range
 
 The virtual device advertises `EV_KEY` codes `0x100`–`0x11F` (decimal **256–287**): `BTN_MISC`/`BTN_0`–`BTN_9` and `BTN_LEFT`…`BTN_TASK` (the `cap` dict at the top of `veloscroll.py`). Extra side/top buttons on many-button mice, such as DPI or back/forward keys reported as `BTN_SIDE`, `BTN_EXTRA`, `BTN_TASK`, or `BTN_5`–`BTN_9`, pass through and work without code edits.
@@ -157,13 +148,25 @@ Codes **outside** 256–287 are not advertised, so such buttons might do nothing
 
 This is fine for normal mice. If a button you need reports outside 256–287 and stops working with VeloScroll, please open an issue.
 
+
+### While a scroll session is active
+
+- The cursor stays put.
+- Movement on the active axis is consumed for velocity math.
+- Wheel events from the physical mouse are swallowed.
+- Releasing the button (or tapping it off) restores normal behavior immediately.
+
+### Using both scroll buttons
+
+If both scroll buttons are held at once, the last press owns the active axis. Releasing it reactivates the other fresh (LIFO).
+
 ---
 
 ## Desktop environment pointer settings
 
 Follow your desktop environment's guide end-to-end for the full commands and explanations:
 
-| Desktop environment               | Guide                        |
+| Tested Desktop environment        | Guide                        |
 |-----------------------------------|------------------------------|
 | KDE Plasma (5/6, X11 or Wayland)  | [docs-desktop/kde-plasma.md](docs-desktop/kde-plasma.md) |
 | Fedora Workstation 44 (GNOME)     | [docs-desktop/gnome.md](docs-desktop/gnome.md)      |
@@ -172,7 +175,7 @@ Follow your desktop environment's guide end-to-end for the full commands and exp
 Notes:
 
 - **Seeding** (`veloscroll_seed.py`) is currently supported on **KDE Plasma (Wayland) only**. X11 has Global Pointer Settings.
-- On desktop environments with **Global Pointer Settings**, running `veloscroll_seed.py` is not necessary. Your pointer settings should stay consistent out of the box.
+- On desktop environments with **Global Pointer Settings** (no per device mouse settings in your systems settings app), running `veloscroll_seed.py` is not necessary. Your pointer settings should stay consistent out of the box.
 - If your desktop environment has **per-device pointer settings** and seeding is not supported, adjust the pointer settings for the virtual device (default name: `veloscroll-mouse`) in your system settings once after install, so they match how your actual mouse feels. This is a one-time setup.
 
 ---
