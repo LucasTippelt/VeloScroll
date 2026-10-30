@@ -35,7 +35,7 @@ All settings go in `/etc/veloscroll/config.ini`, **not** `veloscroll.py` — do 
 List all input devices with their USB IDs:
 
 ```bash
-sudo python3 /opt/veloscroll/ListDeviceNames.py
+sudo python3 /opt/veloscroll/helpers/ListDeviceNames.py
 ```
 
 Set, in `/etc/veloscroll/config.ini`:
@@ -55,7 +55,7 @@ Other options:
 Print every key event your device emits (movement/scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
-sudo python3 /opt/veloscroll/ListButtonPresses.py XY
+sudo python3 /opt/veloscroll/helpers/ListButtonPresses.py XY
 ```
 
 `XY` is the node number of your mouse from Step 4 (a full path like `/dev/input/eventX` works too). Press every button once and confirm that **no codes outside 256–287** are reported; if any are, see [Mice with non-standard buttons](../docs/INSTALL.md#mice-with-non-standard-buttons) in the installation guide. Note the button(s) you want to use for vertical/horizontal scrolling down — decimal is easiest (the number, e.g. 275).
@@ -88,7 +88,7 @@ The constants are available as `evdev.ecodes.BTN_*`; set your choice in `/etc/ve
 Run `veloscroll_seed.py` ([options](../docs/ADVANCED.md#veloscroll_seedpy-options)) **as your desktop user, not root** — run as root it would target `/root/.config`:
 
 ```bash
-python3 /opt/veloscroll/veloscroll_seed.py
+python3 /opt/veloscroll/helpers/veloscroll_seed.py
 ```
 
 What it does: it finds your real mouse (via `DEVICE_MATCH`) and copies its per-device pointer settings from the `[Libinput][<vendor>][<product>][<name>]` group in `~/.config/kcminputrc` into a matching group for the virtual device — `[Libinput][<vendor>][<product>][veloscroll-mouse]` (decimal IDs) — then **applies them to your running session through KWin's D-Bus interface**, the same mechanism System Settings' "Apply" uses. After seeding, `veloscroll-mouse` starts out feeling exactly like your real mouse.
@@ -110,7 +110,7 @@ Notes on the output:
 - If your real mouse has no per-device entry in `kcminputrc` — the normal situation on **X11** sessions (see above) — you get `no per-device settings for <name> in kcminputrc — veloscroll-mouse will use system defaults`.
 - If `veloscroll-mouse` isn't registered with KWin yet (daemon not running), the live apply is skipped with a note to re-run after starting it; the file copy itself already happened.
 
-If discovery picks the wrong device (e.g. two mice match your selector), select explicitly with `python3 /opt/veloscroll/veloscroll_seed.py --name <NAME>`. Re-run it whenever you change mice — update `DEVICE_MATCH` in `/etc/veloscroll/config.ini` first (see [Switching mice on Plasma](#switching-mice-on-plasma) below). To push hand-edited values from `kcminputrc` to a running session without re-seeding, run it with `--apply-only` instead (see [Tuning pointer settings](#tuning-pointer-settings-sensitivityacceleration-mode)).
+If discovery picks the wrong device (e.g. two mice match your selector), select explicitly with `python3 /opt/veloscroll/helpers/veloscroll_seed.py --name <NAME>`. Re-run it whenever you change mice — update `DEVICE_MATCH` in `/etc/veloscroll/config.ini` first (see [Switching mice on Plasma](#switching-mice-on-plasma) below). To push hand-edited values from `kcminputrc` to a running session without re-seeding, run it with `--apply-only` instead (see [Tuning pointer settings](#tuning-pointer-settings-sensitivityacceleration-mode)).
 
 </details>
 
@@ -140,7 +140,7 @@ grabbed /dev/input/event4 Logitech G Pro X Superlight 2   (or whatever your devi
 
 i.e. `grabbed <path> <device name>`. That's it — from here on, use the sections below for tuning and switching mice. Config changes after this are picked up within ~2 s without a restart.
 
-**Wayland:** if you seeded in Step 6 before the daemon started (the normal case with this guide's ordering), re-run `python3 /opt/veloscroll/veloscroll_seed.py` now so the live apply can find `veloscroll-mouse`.
+**Wayland:** if you seeded in Step 6 before the daemon started (the normal case with this guide's ordering), re-run `python3 /opt/veloscroll/helpers/veloscroll_seed.py` now so the live apply can find `veloscroll-mouse`.
 
 ## Tuning pointer settings (Sensitivity/acceleration mode)
 
@@ -151,7 +151,7 @@ i.e. `grabbed <path> <device name>`. That's it — from here on, use the section
 - While veloscroll runs, the daemon exclusively grabs the real mouse — its own KDE entry is bypassed and only the virtual device's settings apply. 
 - Tweaks you make to `veloscroll-mouse` survive restarts and reboots because KWin keys the config by `[vendor][product][name]` and the same IDs are re-advertised on every daemon start. Re-running the seed script resets that entry back to your real mouse's values — that is how you switch mice (see [Switching mice on Plasma](#switching-mice-on-plasma) below).
 - **Gotcha on Wayland:** hand-editing `kcminputrc` alone will **not** change how a running session feels — KWin only applies per-device settings to an already-registered device through its D-Bus interface, and its file watcher is unreliable on Plasma 6 Wayland (KDE bug 513879). Re-running the seed does not help either: it overwrites the `veloscroll-mouse` group with your real mouse's values.
-- To apply hand-edited values, close and reopen System Settings → Mouse & Touchpad first (with the module open, Apply pushes stale in-memory values and can clobber your edit), then click Apply — or run `python3 /opt/veloscroll/veloscroll_seed.py --apply-only`, which pushes the file's current `veloscroll-mouse` group to KWin without modifying it. As a last resort, re-login (KWin reads `kcminputrc` when the device registers).
+- To apply hand-edited values, close and reopen System Settings → Mouse & Touchpad first (with the module open, Apply pushes stale in-memory values and can clobber your edit), then click Apply — or run `python3 /opt/veloscroll/helpers/veloscroll_seed.py --apply-only`, which pushes the file's current `veloscroll-mouse` group to KWin without modifying it. As a last resort, re-login (KWin reads `kcminputrc` when the device registers).
 ### On **X11** ###
 - there is no per-device entry — adjust the *global* Mouse & Touchpad settings once instead; they apply to both mice.
 
@@ -159,7 +159,7 @@ i.e. `grabbed <path> <device name>`. That's it — from here on, use the section
 
 **Wayland only:** under X11, no such groups ever exist. Stale `[Libinput][…][veloscroll-mouse]` groups in `kcminputrc` — e.g. `[Libinput][1][1][veloscroll-mouse]` from pre-ID-copy runs (before the daemon advertised your mouse's real USB IDs on the virtual device), or groups left behind by previous mice — are dead config:
 
-- To remove them, run `python3 /opt/veloscroll/veloscroll_seed.py --remove-stale-config`: it deletes every such group except the one keyed by your current mouse's USB IDs (from `DEVICE_MATCH`; use `--name` to disambiguate), and writes a `.bak-*` backup first. It combines with `--apply-only` in a single run — e.g. right after hand-editing values on a just-switched mouse: the file's current `veloscroll-mouse` group is pushed live first, then stale groups are removed; if the second part fails, the first has already taken effect (both parts are idempotent — just re-run).
+- To remove them, run `python3 /opt/veloscroll/helpers/veloscroll_seed.py --remove-stale-config`: it deletes every such group except the one keyed by your current mouse's USB IDs (from `DEVICE_MATCH`; use `--name` to disambiguate), and writes a `.bak-*` backup first. It combines with `--apply-only` in a single run — e.g. right after hand-editing values on a just-switched mouse: the file's current `veloscroll-mouse` group is pushed live first, then stale groups are removed; if the second part fails, the first has already taken effect (both parts are idempotent — just re-run).
 - Re-running the seed resets the live `veloscroll-mouse` entry back to your real mouse's values, so a broken tweak is always recoverable that way too (and from the `.bak-*` backup files).
 
 ## Switching mice on Plasma

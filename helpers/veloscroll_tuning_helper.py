@@ -16,7 +16,7 @@
 # boundary either way, plus a copy-pasteable release summary:
 #
 #     sudo systemctl stop veloscroll
-#     sudo python3 /opt/veloscroll/veloscroll_tuning_helper.py  # --config PATH for a per-user config
+#     sudo python3 /opt/veloscroll/helpers/veloscroll_tuning_helper.py  # --config PATH for a per-user config
 #     ... hold the button, move, read the milestone + summary lines ...
 #     # set DEADZONE_IN / FULL_IN (+ _H) in /etc/veloscroll/config.ini to your liking
 #     sudo systemctl start veloscroll
@@ -300,7 +300,7 @@ def main(argv=None):
 
     if args.config:
         os.environ["VELOSCROLL_CONFIG"] = args.config   # veloscroll reads it at import time; the explicit flag wins over the env var
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root (this script lives in helpers/)
     try:
         import veloscroll as vs      # also loads/validates config.ini on import — fail-fast like veloscroll_preset.py (module-level load is intended)
     except ImportError as exc:

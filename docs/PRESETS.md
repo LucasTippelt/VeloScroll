@@ -2,7 +2,7 @@
 
 `veloscroll_preset.py` switches between named presets of the VeloScroll daemon keys without hand-editing `config.ini`.
 
-`save <name>` snapshots every key into `<config dir>/presets/<name>.ini`. Each `load` command applies only its own group of keys. A load is an atomic, pre-validated rewrite of only that group's lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s.
+`save <name>` snapshots every daemon key except `MAX_BACKUPS` into `<config dir>/presets/<name>.ini`. Each `load` command applies only its own group of keys — and no load ever touches `MAX_BACKUPS`, which stays a per-machine setting in `config.ini`. A load is an atomic, pre-validated rewrite of only that group's lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s.
 
 ## Contents
 
@@ -24,7 +24,7 @@ Run them as `python3 /opt/veloscroll/veloscroll_preset.py <command> ...`.
 
 | Command | Effect |
 |---------|--------|
-| `save <name>` | Snapshot every daemon key to `/etc/veloscroll/presets/<name>.ini` (`*_H` keys only when set in `config.ini`). |
+| `save <name>` | Snapshot every daemon key except `MAX_BACKUPS` (backup policy is per-machine) to `/etc/veloscroll/presets/<name>.ini` (`*_H` keys only when set in `config.ini`). |
 | `loaddistances <name>` | Apply the physical distance keys present in the preset: `DEADZONE_IN` / `FULL_IN` + `_H`. |
 | `loadfeel <name>` | Apply only the 8 feel keys: `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH` + their `_H` variants. |
 | `loadkeys <name>` | Apply the button bindings: `SCROLL_BTN` / `SCROLL_BTN_H` / `DISABLED_BTN`. |
@@ -79,7 +79,9 @@ Partial and older preset files work as-is: a load only ever applies the keys tha
 
 ## What `save` captures
 
-Every daemon key is written (the `config.ini` value, else the built-in default). The exception is `*_H` keys, which are written **only when explicitly set** in `config.ini`. That way an unset axis keeps its fallback-to-vertical relation on any machine, instead of baking a stale number into the preset.
+Every daemon key except `MAX_BACKUPS` is written (the `config.ini` value, else the built-in default) — backup policy is per-machine operational state, so a preset never captures it and no load command (including `loadall`) ever applies it. If a hand-edited preset file contains `MAX_BACKUPS`, every load warns about it on stderr and ignores it (an invalid value there can't fail the load either, since it is never applied or validated).
+
+The other exception is `*_H` keys, which are written **only when explicitly set** in `config.ini`. That way an unset axis keeps its fallback-to-vertical relation on any machine, instead of baking a stale number into the preset.
 
 This includes `VERTICAL_H`, `TOGGLE_SCROLL_H` and `SCROLL_BTN_H`: captured only when set, otherwise omitted, and each machine keeps its local value on load (an unset `SCROLL_BTN_H` leaves horizontal scrolling disabled).
 
@@ -89,20 +91,20 @@ Unknown keys in a preset file are warned about and ignored, like unknown `config
 
 ## Backups and recovery
 
-**Backups and pruning.** Each load that changes `config.ini` first writes `config.ini.bak-<timestamp>`. A save-overwrite backs up the preset file as `<name>.ini.bak-*`. Both families are pruned per `MAX_BACKUPS` (default 5), the same knob as `veloscroll_seed.py` (see [Advanced](ADVANCED.md#advanced-notes-not-needed-for-normal-use)). A no-op load (values already equal) writes nothing and makes no backup.
+**Backups and pruning.** Each load that changes `config.ini` first writes `config.ini.bak-<timestamp>`. A save-overwrite backs up the preset file as `<name>.ini.bak-*`. Both families are pruned per `MAX_BACKUPS`, a hot-reloaded key in `config.ini` shared with `veloscroll_seed.py`: `-1` = unlimited, default 5 keeps only the newest five of each family after every run that writes a backup. With `MAX_BACKUPS = 0`, backups are disabled entirely — no command writes any `.bak-*` files (existing ones stay untouched) and pruning is a no-op for that run. A no-op load (values already equal) writes nothing and makes no backup either way.
 
 **Recovery.** `backups` lists every backup of the config and its presets. `restore [BACKUP]` puts one back over its original:
 
 - with no argument, the newest `config.ini` backup,
 - otherwise, any file name exactly as listed (or a path relative to the config dir).
 
-Every restore backs up the current state first, so undoing is itself reversible.
+Every restore backs up the current state first, so undoing is itself reversible — while `MAX_BACKUPS != 0` (with backups disabled there is nothing to back up).
 
 ---
 
 ## Permissions
 
-`/etc/veloscroll` is root-owned, so on the standard install run the helper via `sudo`, or add a scoped passwordless rule for that one binary only (validate with `visudo -cf` before installing):
+`/etc/veloscroll` is root-owned, so on the standard install run the helper via `sudo`, or add a scoped passwordless rule for that one binary only. Replace `<user>` with your username (validate with `visudo -cf` before installing):
 
 ```
 # /etc/sudoers.d/veloscroll-preset
@@ -111,7 +113,8 @@ Cmnd_Alias VELOSCROLL_PRESET = /opt/veloscroll/veloscroll_preset.py
 ```
 
 This grants root for that single command only (any of its subcommands). With a per-user `VELOSCROLL_CONFIG` setup the helper needs no root at all.
-
+**IMPORTANT** when using this, you need to add a shebang (#!) before python3, so: `#!/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py save YourPresetName` etc.
+ 
 ---
 
 ## Shortcut switching (optional)

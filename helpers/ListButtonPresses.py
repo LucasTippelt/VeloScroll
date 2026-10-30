@@ -9,8 +9,8 @@
 # opens /dev/input/event<N> and prints every key event as `code value` while you press buttons — movement/
 # scroll events are filtered out, Ctrl-C stops:
 #
-#     sudo python3 /opt/veloscroll/ListButtonPresses.py 30     # -> /dev/input/event30
-#     sudo python3 /opt/veloscroll/ListButtonPresses.py /dev/input/by-id/...   # a full path works too
+#     sudo python3 /opt/veloscroll/helpers/ListButtonPresses.py 30     # -> /dev/input/event30
+#     sudo python3 /opt/veloscroll/helpers/ListButtonPresses.py /dev/input/by-id/...   # a full path works too
 #
 # Run as root, or as a user in the input group.
 

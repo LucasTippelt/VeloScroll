@@ -14,6 +14,7 @@ Reference:
 
 - [Updating](docs/UPDATING.md): fetch a new release, restart, roll back
 - [Advanced](docs/ADVANCED.md): fork-level constants and `veloscroll_seed.py` options
+- [Testing](docs/TESTING.md): run the full pytest suite and what each test covers
 
 Each guide in the reading order links to the next one at the bottom.
 
@@ -52,10 +53,12 @@ See the [Configuration Guide](docs/CONFIGURATION.md) for the full key reference.
 ### 🎛️ Preset and workflow tools
 
 - **Preset system (`veloscroll_preset.py`):** Save named snapshots of your configuration and load them back. Loads are grouped (`loadfeel`, `loaddistances`, `loadkeys`, `loaddevice`, `loadscroll`), so swapping a "feel" preset doesn't accidentally change your button bindings or device selection. Multiple load groups can be chained in one command. See [Presets](docs/PRESETS.md).
-- **Tuning assistant (`veloscroll_tuning_helper.py`):** With the daemon stopped, this script exclusively grabs your mouse and measures your actual hand movement. It prints an in-place distance gauge with the would-be target rate, helping you set `DEADZONE_IN` and `FULL_IN` from real distances instead of guesswork.
-- **Device discovery scripts:**
+- **Tuning assistant (`helpers/veloscroll_tuning_helper.py`):** With the daemon stopped, this script exclusively grabs your mouse and measures your actual hand movement. It prints an in-place distance gauge with the would-be target rate, helping you set `DEADZONE_IN` and `FULL_IN` from real distances instead of guesswork.
+- **Device discovery scripts (in `helpers/`):**
   - `ListDeviceNames.py`: lists all input devices with their USB IDs.
   - `ListButtonPresses.py`: prints every key event a device emits, so you can find the code for your activation button.
+
+All helper scripts live in the [`helpers/`](helpers/) directory; only `veloscroll.py` and `veloscroll_preset.py` sit at the repo root.
 
 ### 🖥️ System integration and compatibility
 
@@ -74,4 +77,4 @@ See the [Configuration Guide](docs/CONFIGURATION.md) for the full key reference.
 - **Log levels:** `LOG_LEVEL` (0–3) controls verbosity, from errors-only to debug.
 - **Systemd service:** Ships with `veloscroll.service`, a root system unit for automatic restarts. Can also run standalone or as a per-user unit.
 - **Hot-reload for device changes:** Switching mice requires no restart. The daemon applies the new `DEVICE_MATCH` within ~2 seconds and releases the old device automatically.
-- **Backup system:** The preset helper and seed script create `.bak-<timestamp>` backups, with `MAX_BACKUPS` controlling how many are kept.
+- **Backup system:** The preset helper and seed script create `.bak-<timestamp>` backups. `MAX_BACKUPS` in `config.ini` (hot-reloaded) controls the policy: `-1` = unlimited, `N ≥ 1` = keep only the newest N per file family, `0` = backups disabled entirely (no backup files are written; existing ones stay untouched).

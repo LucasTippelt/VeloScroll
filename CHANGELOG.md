@@ -2,6 +2,20 @@
 
 All notable changes to VeloScroll are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+#### Helper scripts moved to `helpers/`
+
+- All four helper scripts now live in the new `helpers/` directory: `ListButtonPresses.py`, `ListDeviceNames.py`, `veloscroll_seed.py` and `veloscroll_tuning_helper.py`. Only `veloscroll.py` and `veloscroll_preset.py` remain at the repo root. There are no backward-compatibility shims — all paths in docs, comments and tests were updated (e.g. `python3 /opt/veloscroll/helpers/ListDeviceNames.py`, `python3 /opt/veloscroll/helpers/veloscroll_seed.py`).
+
+#### Backup policy: `MAX_BACKUPS` is now a hot-reloaded config.ini key
+
+- `MAX_BACKUPS` moved from a constant in `veloscroll.py` (restart required) to a regular hot-reloaded `config.ini` key; both helper scripts read the live value on every run. Existing configs that don't set it keep the default of 5.
+- New semantics: `-1` = unlimited, `N ≥ 1` = keep only the newest N per file family (unchanged), and **new** `0` = backups disabled entirely — no command writes any `.bak-*` files (`veloscroll_preset.py save/load*/restore`, seed or `--remove-stale-config` runs). Existing backups are left untouched and pruning is a no-op for that run. Invalid values: non-integers and anything below -1 (e.g. `-2`).
+- Presets never touch the backup policy: `save` does not capture `MAX_BACKUPS`, and no load command (`loadfeel`, `loaddistances`, `loadkeys`, `loaddevice`, `loadscroll`, `loadall`) applies it. A preset file that contains the key (hand-edited) gets a warn-and-ignore line on stderr from every load, and an invalid value there can't fail the load either — it is never applied or validated. `list` no longer shows a column for it.
+
 ## [1.1] - 2026-10-30
 
 ### Added

@@ -17,7 +17,7 @@
 #
 # Run as your desktop user, NOT root (as root it would target /root/.config):
 #
-#     python3 /opt/veloscroll/veloscroll_seed.py [--name <NAME>] [--apply-only] [--remove-stale-config]
+#     python3 /opt/veloscroll/helpers/veloscroll_seed.py [--name <NAME>] [--apply-only] [--remove-stale-config]
 #
 # Re-run at install time and whenever you change mice (update DEVICE_MATCH in
 # /etc/veloscroll/config.ini first — not veloscroll.py, which updates would overwrite).
@@ -183,10 +183,10 @@ def discover_real_mouse(device_match, name_match: str, name_override: Optional[s
 
 
 def _prune_backups(path: str, max_backups: int) -> List[str]:
-    """Keep only the newest `max_backups` files named `<basename>.bak-*` next to path; return deleted names. -1 = unlimited."""
-    if not isinstance(max_backups, int) or max_backups == 0 or max_backups < -1:
-        raise SeedError(f"invalid MAX_BACKUPS {max_backups!r} — use -1 (unlimited) or a positive number of backups to keep")
-    if max_backups < 0:
+    """Keep only the newest `max_backups` files named `<basename>.bak-*` next to path; return deleted names. -1 = unlimited, 0 = backups disabled (no-op)."""
+    if not isinstance(max_backups, int) or max_backups < -1:
+        raise SeedError(f"invalid MAX_BACKUPS {max_backups!r} — use -1 (unlimited), 0 (backups disabled), or a positive number of backups to keep")
+    if max_backups <= 0:
         return []
     prefix = os.path.basename(path) + ".bak-"
     # fixed-width timestamps sort lexicographically == chronologically; oldest first
@@ -258,10 +258,11 @@ class KdePlasmaBackend(PointerSettingsBackend):
         backup_path = None
         pruned = []
         if changes:
-            # Overwrite semantics: replace the target group (existing tweaks are reset; recoverable from the backup).
-            backup_path = path + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S")
-            shutil.copy2(path, backup_path)
-            pruned = _prune_backups(path, max_backups)
+            # Overwrite semantics: replace the target group (existing tweaks are reset; recoverable from the backup while backups are enabled).
+            if max_backups != 0:     # MAX_BACKUPS = 0 disables backups entirely — no .bak-* file is written, existing ones stay untouched
+                backup_path = path + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+                shutil.copy2(path, backup_path)
+                pruned = _prune_backups(path, max_backups)
             if target in cp.sections():
                 for key in old_options:
                     cp.remove_option(target, key)
@@ -319,9 +320,12 @@ class KdePlasmaBackend(PointerSettingsBackend):
         if not stale:
             return SeedReport(message="no stale veloscroll-mouse groups found — nothing to remove")
 
-        backup_path = path + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S")
-        shutil.copy2(path, backup_path)
-        pruned = _prune_backups(path, max_backups)
+        backup_path = None
+        pruned = []
+        if max_backups != 0:     # MAX_BACKUPS = 0 disables backups entirely — no .bak-* file is written, existing ones stay untouched
+            backup_path = path + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+            shutil.copy2(path, backup_path)
+            pruned = _prune_backups(path, max_backups)
         for s in stale:
             cp.remove_section(s)
         self._write_inplace(cp, path)
@@ -501,7 +505,7 @@ def main(argv=None) -> int:
                              "combinable with --apply-only, which runs before it")
     args = parser.parse_args(argv)
 
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root (this script lives in helpers/)
     try:
         import veloscroll  # also loads/validates /etc/veloscroll/config.ini on import — the seed fails fast on a broken config
     except ImportError as exc:

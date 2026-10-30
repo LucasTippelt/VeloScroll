@@ -4,17 +4,18 @@ Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_
 
 ## Presets
 
-| Case | MAX_RATE | MIN_RATE | CURVE | OUT_SMOOTH |
-| --- | --- | --- | --- | --- |
-| Balanced | 130.0 | 4.0 | 0.5 | 0.8 |
-| Fast | 220.0 | 6.0 | 0.35 | 0.9 |
-| Precise | 45.0 | 2.0 | 1.6 | 0.5 |
-| Cruising | 90.0 | 3.0 | 1.2 | 0.65 |
-| Snappy | 160.0 | 8.0 | 1.0 | 1.0 |
+| Case | MAX_RATE | MIN_RATE | CURVE | OUT_SMOOTH | DEADZONE_IN | FULL_IN |
+| --- | --- | --- | --- | --- | --- | --- |
+| Balanced | 130.0 | 4.0 | 0.5 | 0.8 | | |
+| Fast | 220.0 | 6.0 | 0.35 | 0.9 | | |
+| Precise | 45.0 | 2.0 | 1.6 | 0.5 | | |
+| Cruising | 90.0 | 3.0 | 1.2 | 0.65 | | |
+| Snappy | 160.0 | 8.0 | 1.0 | 1.0 | | |
+| Firefox | 158.0 | 1.5 | 0.85 | 0.9 | 0.0075 | 1.1 |
 
 **Balanced is the shipped default** (the built-in fallbacks in `veloscroll.py`, mirrored in `config.ini.example`) — your reference point for "what did I change". This row intentionally tracks those code defaults; if they ever change, update it here too. Apply every tweak via `/etc/veloscroll/config.ini` — do not edit `veloscroll.py`: local edits are lost (or conflict) on the next update.
 
-## The five cases
+## The cases
 
 ### Balanced
 The out-of-the-box feel: a middle-ground combination where no single knob dominates. Use it as the anchor when judging any other preset or your own tweaks. If something feels off, start with `MAX_RATE` (overall speed) before touching the ramp shape.
@@ -31,6 +32,9 @@ For long reading sessions: a moderate pace (90) with a forgiving ramp (1.2 > 1) 
 ### Snappy
 For deliberate movements with minimal lag: instant rate tracking (`OUT_SMOOTH` 1.0 = no smoothing at all — the rate jumps straight to its target each tick), a linear reference curve (1.0), and a high floor (8) so small moves already scroll meaningfully. If it feels jumpy, lower `OUT_SMOOTH` to ~0.9 — that's the only knob controlling how quickly the rate follows.
 
+### Firefox
+An approximation of the Firefox Autoscroll behavior, not 1 to 1 identical. Tune `DEADZONE_IN` and `FULL_IN` according to your mouse/desk setup.
+
 ## Knob refresher
 
 - `MAX_RATE` — notches/second at FULL_IN and beyond: your top scrolling speed.
@@ -38,7 +42,7 @@ For deliberate movements with minimal lag: instant rate tracking (`OUT_SMOOTH` 1
 - `CURVE` — shape of the speed ramp: <1 steep near the start, =1 linear reference, >1 gentle near the start.
 - `OUT_SMOOTH` — 0..1 how quickly the rate follows the target: lower = smoother, higher = snappier (1.0 = instant tracking).
 
-For the full key list with tuning hints, see [Customize & reload](README.md#customize--reload) in the README.
+For the full key list with tuning hints, see [Customize and reload](CONFIGURATION.md#customize-and-reload) in the configuration guide.
 
 ## Horizontal scrolling (optional)
 

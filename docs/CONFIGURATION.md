@@ -29,6 +29,7 @@ Keys with an `_H` suffix are horizontal variants. Where noted, an unset or `none
 |-----|-----------------|-------------|
 | `NAME_MATCH` | Case-insensitive substring of your mouse's name that selects it. Used only when `DEVICE_MATCH` is `None` (fallback). | Use a short unique fragment from the device list; if any other device shares it, prefer `DEVICE_MATCH`. Recommended if you want to pipe another virtual device into VeloScroll. |
 | `DEVICE_MATCH` | Recommended precise selector for a physical device; overrides `NAME_MATCH`. An exact USB ID pair (`0x46d, 0xc084`) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice. | Set it to your mouse's USB IDs: stable across reboots/ports, and lets per-device pointer rules apply automatically. See [Installation](INSTALL.md#installation), step 4. |
+| `DPI` | Your mouse's current DPI (counts/inch). Converts inches to raw counts. | Set it to your mouse's current DPI setting, not its maximum. |
 | `SCROLL_BTN` | Key code of the button to hold for scrolling (evdev name like `BTN_SIDE`, or decimal code, e.g. `275`). | Find it with `ListButtonPresses.py` (see [Installation](INSTALL.md#installation), step 5). Names are `evdev.ecodes.BTN_*`. |
 | `SCROLL_BTN_H` | Optional second button to hold for velocity scrolling. By default horizontal, driven by mouse X movement (emits `REL_HWHEEL`/`REL_HWHEEL_HI_RES`), using the vertical ramp unless overridden by the `_H` keys. With `VERTICAL_H = true` it emits vertical wheel events from up/down movement instead, at the same `_H`-key values. Evdev name or decimal code, or `none` to disable (default). | Must differ from `SCROLL_BTN` and `DISABLED_BTN`. `INVERT` flips both axes; see the hardware docs for direction notes. |
 | `DISABLED_BTN` | Key code that is swallowed and does nothing, or `none` to disable this feature. | Set `none` if you don't want to disable a button. |
@@ -45,7 +46,6 @@ Keys with an `_H` suffix are horizontal variants. Where noted, an unset or `none
 
 | Key | Meaning / units | Tuning hint |
 |-----|-----------------|-------------|
-| `DPI` | Your mouse's current DPI (counts/inch). Converts inches to raw counts. | Set it to your mouse's current DPI setting, not its maximum. |
 | `DEADZONE_IN` | Distance from the press point (inches) below which nothing scrolls. | Raise if scrolling starts before you've moved the mouse at all. |
 | `FULL_IN` | Distance (inches) from the press point where `MAX_RATE` is reached. Must be > `DEADZONE_IN`. | The span over which speed ramps up. |
 | `MAX_RATE` | Scroll rate in notches/second at `FULL_IN` and beyond. | Your top scrolling speed. |
@@ -80,11 +80,17 @@ Used only while `SCROLL_BTN_H` is held.
 | `LOG_LEVEL` | What the daemon writes to its log (`journalctl -u veloscroll`). Integer `0..3`, higher = more verbose: `0` errors only, `1` + events (`grabbed …`), `2` + config detail (default: unknown keys ignored, reload rejected, config reloaded old→new), `3` + debug. | Set `0` on a healthy system for silence; raise to `3` temporarily when debugging device selection. Lowering below `2` also hides the `config reloaded:` confirmation line itself. |
 | `LATENCY_LOG` | `True`/`False`. Per-second measured latency summary lines plus a computed model line at startup/config change. Independent of `LOG_LEVEL` (see [Latency & debugging](ADVANCED.md#latency--debugging)). | Debugging only: set `true`, watch `journalctl -u veloscroll`, then leave it `false`. |
 
+### Backups (helper scripts)
+
+| Key | Meaning / units | Tuning hint |
+|-----|-----------------|-------------|
+| `MAX_BACKUPS` | How many `.bak-<timestamp>` backups the preset helper (`config.ini.bak-*`, `<name>.ini.bak-*`) and the seed script (`kcminputrc.bak-*`) keep per file family. `-1` = unlimited, `N ≥ 1` = keep only the newest N after each run that writes a backup, `0` = backups disabled entirely (no backup files are written; existing ones stay untouched). | Hot-reloaded like every other key — each helper run reads the current value. Set `0` if you don't want any `.bak-*` files at all (note: with `0`, `restore` no longer backs up the state it overwrites — see [Presets → Backups and recovery](PRESETS.md#backups-and-recovery)). |
+
 ---
 
 ## Starting points and presets
 
-For `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH`, [`TUNING.md`](TUNING.md) has five ready-to-paste value sets by use case: **balanced**, **fast**, **precise**, **cruising**, **snappy**.
+For `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH`, [`TUNING.md`](TUNING.md) has ready-to-paste value sets by use case: **balanced**, **fast**, **precise**, **cruising**, **snappy**, **firefox**.
 
 They hot-reload like every other key: edit `/etc/veloscroll/config.ini`, and the change applies live within ~2 s. Verify with:
 
@@ -110,7 +116,7 @@ With the daemon stopped, it exclusively grabs the configured mouse (all matching
 
 ```bash
 sudo systemctl stop veloscroll
-sudo python3 /opt/veloscroll/veloscroll_tuning_helper.py   # --config PATH for a per-user config
+sudo python3 /opt/veloscroll/helpers/veloscroll_tuning_helper.py   # --config PATH for a per-user config
 # hold the scroll button and move; read the milestone + summary lines
 # set DEADZONE_IN / FULL_IN (+ _H) in /etc/veloscroll/config.ini to your liking
 # the helper also hot-reloads config.ini, so you can set -> test in one workflow

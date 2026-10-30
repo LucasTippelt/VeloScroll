@@ -21,9 +21,9 @@ from evdev import UInput, ecodes as e
 # within ~2 s and survives updates, while local edits here are lost (or conflict)
 # on the next update and require a manual restart anyway. These values only act as
 # fallbacks for keys that are missing or empty in config.ini — change them solely if
-# you maintain a local fork of this project for personal use. The three helper-script constants at the end of
-# the list (DE_WM / VIRTUAL_NAME for veloscroll_seed.py, MAX_BACKUPS shared with veloscroll_preset.py) are intentionally not in config.ini;
-# see the Advanced notes under "Customize & reload" in the README.
+# you maintain a local fork of this project for personal use. The two helper-script constants at the end of
+# the list (DE_WM / VIRTUAL_NAME for veloscroll_seed.py) are intentionally not in config.ini;
+# see the Advanced notes under "Customize & reload" in the README. MAX_BACKUPS, shared with the preset helper and the seed script, is a normal hot-reloaded key like every other one.
 
 
 NAME_MATCH = "Fallback"             # fallback selector (used when DEVICE_MATCH is None): case-insensitive substring of the device name
@@ -57,7 +57,7 @@ LOG_LEVEL = 2                       # what the daemon logs: 0=errors only, 1=+ev
 LATENCY_LOG = False                 # true: log a computed latency model plus one measured per-second summary line (independent of LOG_LEVEL)
 DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
 VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
-MAX_BACKUPS = 5                     # helper-script constant (veloscroll_seed.py + veloscroll_preset.py): max number of .bak-* backups to keep per file family (kcminputrc.bak-*, config.ini.bak-*, preset <name>.ini.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup
+MAX_BACKUPS = 5                     # helper-script setting (veloscroll_preset.py + helpers/veloscroll_seed.py): max number of .bak-* backups to keep per file family (config.ini.bak-*, preset <name>.ini.bak-*, kcminputrc.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup, 0 = backups disabled entirely (no .bak-* file is written by any helper run)
 
 
 # --- config.ini layer ---------------------------------------------------------
@@ -71,7 +71,8 @@ DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCRO
                "TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H",
                "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
                 "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
-                "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG")
+                 "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG",
+                 "MAX_BACKUPS")
 _DEFAULTS = {k: globals()[k] for k in DAEMON_KEYS}   # the code defaults, captured before any .ini overlay; a key absent from the file always falls back to these
 
 
@@ -140,6 +141,14 @@ def _parse_ini_value(key, raw):
             return float(raw)
         except ValueError:
             raise ConfigError(f"{key} in {CONFIG_PATH}: expected a number or none (got {raw!r})")
+    if key == "MAX_BACKUPS":
+        try:
+            val = int(raw)
+        except ValueError:
+            raise ConfigError(f"{key} in {CONFIG_PATH}: expected an integer — use -1 (unlimited), 0 (backups disabled) or a positive number of backups to keep (got {raw!r})")
+        if val < -1:
+            raise ConfigError(f"{key} in {CONFIG_PATH}: must be >= -1 — use -1 (unlimited), 0 (backups disabled) or a positive number of backups to keep (got {val})")
+        return val
     try:
         return float(raw)                     # DPI, DEADZONE_IN, FULL_IN, MAX_RATE, MIN_RATE, CURVE, OUT_SMOOTH, TICK
     except ValueError:
@@ -147,7 +156,7 @@ def _parse_ini_value(key, raw):
 
 
 def load_config():
-    """All 25 daemon keys: the code defaults overlaid with non-empty config.ini values.
+    """All 26 daemon keys: the code defaults overlaid with non-empty config.ini values.
 
     Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
     Bad syntax -> all errors collected and raised as one ConfigError."""
@@ -267,6 +276,8 @@ def check_config(v):
         errors.append(f"LOG_LEVEL must be an integer in the range 0..3 (got {v['LOG_LEVEL']!r})")
     if not isinstance(v["LATENCY_LOG"], bool):
         errors.append(f"LATENCY_LOG must be a boolean true/false (got {v['LATENCY_LOG']!r})")
+    if not (is_int(v["MAX_BACKUPS"]) and v["MAX_BACKUPS"] >= -1):
+        errors.append(f"MAX_BACKUPS must be an integer >= -1 — use -1 (unlimited), 0 (backups disabled) or a positive number of backups to keep (got {v['MAX_BACKUPS']!r})")
     return errors
 
 
@@ -276,7 +287,7 @@ def _log(level, msg):
 
 
 def apply_values(v):
-    """Assign all 25 keys under the lock; returns [(key, old, new)] for changed keys."""
+    """Assign all 26 keys under the lock; returns [(key, old, new)] for changed keys."""
     global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, _cfg_stat
     changed = []
     with lock:

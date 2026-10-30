@@ -46,7 +46,7 @@ All settings below go in `/etc/veloscroll/config.ini`, **not** in `veloscroll.py
 List all input devices with their USB IDs:
 
 ```bash
-sudo python3 /opt/veloscroll/ListDeviceNames.py
+sudo python3 /opt/veloscroll/helpers/ListDeviceNames.py
 ```
 
 Set `DEVICE_MATCH` to your mouse's USB ID pair (the last two columns of the list), and `DPI` to its current DPI:
@@ -67,7 +67,7 @@ This is **highly recommended**: it selects exactly one device (stable across reb
 Print every key event your device emits (movement and scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
-sudo python3 /opt/veloscroll/ListButtonPresses.py XY
+sudo python3 /opt/veloscroll/helpers/ListButtonPresses.py XY
 ```
 
 `XY` is your mouse's node number from the device list (a full path works too). Press every button once and verify that **no codes outside 256–287** are reported. If yes, you can skip the "Mice with non-standard buttons" and "Supported button code range" sections.
@@ -168,9 +168,9 @@ Follow your desktop environment's guide end-to-end for the full commands and exp
 
 | Tested Desktop environment        | Guide                        |
 |-----------------------------------|------------------------------|
-| KDE Plasma (5/6, X11 or Wayland)  | [docs-desktop/kde-plasma.md](docs-desktop/kde-plasma.md) |
-| Fedora Workstation 44 (GNOME)     | [docs-desktop/gnome.md](docs-desktop/gnome.md)      |
-| Cinnamon                          | [docs-desktop/cinnamon.md](docs-desktop/cinnamon.md)   |
+| KDE Plasma (5/6, X11 or Wayland)  | [docs-desktop/kde-plasma.md](../docs-desktop/kde-plasma.md) |
+| Fedora Workstation 44 (GNOME)     | [docs-desktop/gnome.md](../docs-desktop/gnome.md)      |
+| Cinnamon                          | [docs-desktop/cinnamon.md](../docs-desktop/cinnamon.md)   |
 
 Notes:
 

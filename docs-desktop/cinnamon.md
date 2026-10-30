@@ -32,7 +32,7 @@ All settings go in `/etc/veloscroll/config.ini`, **not** `veloscroll.py` — do 
 List all input devices with their USB IDs:
 
 ```bash
-sudo python3 /opt/veloscroll/ListDeviceNames.py
+sudo python3 /opt/veloscroll/helpers/ListDeviceNames.py
 ```
 
 Set, in `/etc/veloscroll/config.ini`:
@@ -52,7 +52,7 @@ Other options:
 Print every key event your device emits (movement/scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
-sudo python3 /opt/veloscroll/ListButtonPresses.py XY
+sudo python3 /opt/veloscroll/helpers/ListButtonPresses.py XY
 ```
 
 `XY` is the node number of your mouse from Step 4 (a full path like `/dev/input/eventX` works too). Press every button once and confirm that **no codes outside 256–287** are reported; if any are, see [Mice with non-standard buttons](../docs/INSTALL.md#mice-with-non-standard-buttons) in the installation guide. Note the button(s) you want to use for vertical/horizontal scrolling down — decimal is easiest (the number, e.g. 275).

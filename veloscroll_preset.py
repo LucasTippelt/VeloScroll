@@ -9,7 +9,7 @@
 # /etc/veloscroll/config.ini — a load is just an atomic, pre-validated rewrite of that
 # group's key lines (comments and ordering preserved), and the daemon hot-reloads within ~2 s:
 #
-#     veloscroll_preset.py save <name>         snapshot every daemon key -> <config dir>/presets/<name>.ini (*_H keys only when set in config.ini)
+#     veloscroll_preset.py save <name>         snapshot every daemon key except MAX_BACKUPS (per-machine backup policy) -> <config dir>/presets/<name>.ini (*_H keys only when set in config.ini)
 #     veloscroll_preset.py loaddistances <n>   apply the physical distance keys (DEADZONE_IN / FULL_IN + _H) present in the preset
 #     veloscroll_preset.py loadfeel <n>        apply only the 8 feel keys (MAX_RATE / MIN_RATE / CURVE / OUT_SMOOTH + their _H variants)
 #     veloscroll_preset.py loadkeys <n>        apply the button bindings (SCROLL_BTN / SCROLL_BTN_H / DISABLED_BTN)
@@ -26,10 +26,11 @@
 # physical setup and the button/device groups are per-machine choices, so a shared feel preset can't silently change
 # them; every skipped key is noted together with the command that would apply it. Writes are pre-validated with
 # the daemon's own parsing/validation (imported from veloscroll — single source of truth),
-# backed up (<file>.bak-<timestamp>), pruned per MAX_BACKUPS (same knob as veloscroll_seed.py),
+# backed up (<file>.bak-<timestamp>, unless MAX_BACKUPS = 0 in config.ini disables backups entirely) and pruned per
+# MAX_BACKUPS (a hot-reloaded config.ini key, same knob as veloscroll_seed.py),
 # and applied atomically (temp file + os.replace). A load whose merged values already match
 # the current config writes nothing. Any overwrite can be undone with `restore` — which itself
-# backs up first, so undoing is also reversible.
+# backs up first while backups are enabled (MAX_BACKUPS != 0), so undoing is also reversible then.
 #
 # Run as root for /etc/veloscroll (optionally via a scoped NOPASSWD sudoers rule — see
 # README "Presets"), or as your user with VELOSCROLL_CONFIG pointing at a per-user config,
@@ -47,7 +48,7 @@ from datetime import datetime
 NAME_RE = re.compile(r"[A-Za-z0-9._-]+")   # preset name == file name; blocks path traversal by construction (no separators allowed)
 BAK_RE = re.compile(r"^(?P<orig>.+)\.bak-(?P<ts>\d{8}-\d{6}\d{6})$")   # well-formed backup name == exactly what _backup() writes; fixed-width timestamp, so lexicographic == chronological
 
-# The five loadable key groups; `save` snapshots every daemon key (veloscroll.DAEMON_KEYS), and each load command applies only its own group.
+# The five loadable key groups; `save` snapshots every daemon key except PRESET_NEVER_APPLIED (veloscroll.DAEMON_KEYS), and each load command applies only its own group.
 # A new veloscroll.py key lands in `loadall` automatically — move it into a group here if it should get its own command too.
 FEEL_KEYS = ("MAX_RATE", "MIN_RATE", "CURVE", "OUT_SMOOTH",
              "MAX_RATE_H", "MIN_RATE_H", "CURVE_H", "OUT_SMOOTH_H")        # the 8 feel keys — loadfeel
@@ -58,7 +59,11 @@ SCROLL_MODE_KEYS = ("TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H")     # scro
 
 LOAD_GROUPS = {"loaddistances": DISTANCE_KEYS, "loadfeel": FEEL_KEYS, "loadkeys": KEY_KEYS,
                "loaddevice": DEVICE_KEYS, "loadscroll": SCROLL_MODE_KEYS}  # command -> the keys it applies (canonical order)
-LOADALL_EXCLUDED = set(KEY_KEYS) | set(DEVICE_KEYS)                        # `loadall` = every daemon key except these two groups
+
+# Per-machine operational state — never part of a shareable preset profile: `save` skips these keys in the capture loop and every load command warns + ignores them when present in a hand-edited preset file. Set them directly in config.ini.
+PRESET_NEVER_APPLIED = ("MAX_BACKUPS",)
+
+LOADALL_EXCLUDED = set(KEY_KEYS) | set(DEVICE_KEYS) | set(PRESET_NEVER_APPLIED)   # `loadall` = every daemon key except these two groups and the never-applied keys
 
 
 class PresetError(Exception):
@@ -86,17 +91,17 @@ def _preset_dir(config_path):
 def _check_max_backups(vs):
     # validated before any write: an invalid value must never leave a backup behind (mirrors the seed's pruner check)
     mb = vs.MAX_BACKUPS
-    if not isinstance(mb, int) or mb == 0 or mb < -1:
-        raise PresetError(f"invalid MAX_BACKUPS {mb!r} — use -1 (unlimited) or a positive number of backups to keep")
+    if not isinstance(mb, int) or mb < -1:
+        raise PresetError(f"invalid MAX_BACKUPS {mb!r} — use -1 (unlimited), 0 (backups disabled), or a positive number of backups to keep")
 
 
 def _prune_backups(path, max_backups):
-    """Keep only the newest `max_backups` files named `<basename>.bak-*` next to path; return deleted names. -1 = unlimited.
+    """Keep only the newest `max_backups` files named `<basename>.bak-*` next to path; return deleted names. -1 = unlimited, 0 = backups disabled (no-op).
 
-    Duplicated from veloscroll_seed._prune_backups (veloscroll_seed.py:185) so this helper stays self-contained."""
-    if not isinstance(max_backups, int) or max_backups == 0 or max_backups < -1:
-        raise PresetError(f"invalid MAX_BACKUPS {max_backups!r} — use -1 (unlimited) or a positive number of backups to keep")
-    if max_backups < 0:
+    Duplicated from veloscroll_seed._prune_backups (helpers/veloscroll_seed.py:185) so this helper stays self-contained."""
+    if not isinstance(max_backups, int) or max_backups < -1:
+        raise PresetError(f"invalid MAX_BACKUPS {max_backups!r} — use -1 (unlimited), 0 (backups disabled), or a positive number of backups to keep")
+    if max_backups <= 0:
         return []
     prefix = os.path.basename(path) + ".bak-"
     # fixed-width timestamps sort lexicographically == chronologically; oldest first
@@ -232,7 +237,7 @@ def _current_values(vs):
 
 
 def cmd_save(vs, name):
-    """Snapshot every daemon key into presets/<name>.ini; *_H keys (incl. VERTICAL_H/TOGGLE_SCROLL_H/SCROLL_BTN_H) only when explicitly set in config.ini."""
+    """Snapshot every daemon key except PRESET_NEVER_APPLIED into presets/<name>.ini; *_H keys (incl. VERTICAL_H/TOGGLE_SCROLL_H/SCROLL_BTN_H) only when explicitly set in config.ini."""
     _check_max_backups(vs)
     preset_dir = _preset_dir(vs.CONFIG_PATH)
     preset_path = os.path.join(preset_dir, name + ".ini")
@@ -241,6 +246,8 @@ def cmd_save(vs, name):
 
     body, captured_h = [], []
     for key in vs.DAEMON_KEYS:
+        if key in PRESET_NEVER_APPLIED:
+            continue                     # per-machine backup policy — never part of a preset (set it directly in config.ini)
         if key.endswith("_H"):
             raw = ini_keys.get(key, "").strip()
             if not raw:                            # unset _H key stays local to each machine instead of baking a stale value (ramp keys fall back to vertical; TOGGLE_SCROLL_H/VERTICAL_H keep their local values / defaults)
@@ -249,7 +256,7 @@ def cmd_save(vs, name):
         body.append(f"{key} = {_fmt(current[key])}")
 
     text = (f"# VeloScroll preset '{name}' — created by veloscroll_preset.py save "
-            f"(all {len(vs.DAEMON_KEYS)} daemon keys; *_H keys only when set in config.ini)\n"
+            f"(every daemon key except MAX_BACKUPS; *_H keys only when set in config.ini)\n"
             f"[veloscroll]\n" + "\n".join(body) + "\n")
 
     try:
@@ -261,7 +268,7 @@ def cmd_save(vs, name):
         print(f"no change — {preset_path} already matches the current config")
         return 0
 
-    backup_path = _backup(preset_path) if existing is not None else None
+    backup_path = _backup(preset_path) if existing is not None and vs.MAX_BACKUPS != 0 else None   # MAX_BACKUPS = 0 disables backups entirely — no .bak-* file is written
     pruned = _prune_backups(preset_path, vs.MAX_BACKUPS) if backup_path else []
     os.makedirs(preset_dir, exist_ok=True)
     _atomic_write(preset_path, text)
@@ -309,13 +316,16 @@ def _cmd_load(vs, name, cmd, keys):
     keyset = set(keys)
     base = _current_values(vs)                      # dict(_DEFAULTS) <- current config.ini values (import-time overlay)
     merged = dict(base)
-    skipped, unknown = [], []
+    skipped, unknown, never_applied = [], [], []
     for key, raw in (cp["veloscroll"].items() if cp.has_section("veloscroll") else ()):
         if key not in vs.DAEMON_KEYS:
             unknown.append(key)                     # forward-compat: warn + ignore, like the daemon does with config.ini keys (veloscroll.py:177)
             continue
         raw = raw.strip()
         if not raw:                                 # empty value = not captured
+            continue
+        if key in PRESET_NEVER_APPLIED:             # per-machine backup policy — never applied from a preset, before parsing so an invalid value here can't fail the load
+            never_applied.append(key)
             continue
         try:
             value = vs._parse_ini_value(key, raw)   # same parse rules as the daemon — no duplicated logic
@@ -328,6 +338,8 @@ def _cmd_load(vs, name, cmd, keys):
 
     for key in unknown:
         print(f"warning: unknown key {key} in {preset_path} — ignored", file=sys.stderr)
+    for key in never_applied:
+        print(f"warning: {key} in {preset_path} is ignored — backup policy is not part of presets; set it directly in config.ini", file=sys.stderr)
     if skipped:
         hints = " / ".join(f"`veloscroll_preset.py {c} {name}`" for c in _covering_cmds(skipped))
         print(f"note: keys present in '{name}' that {cmd} does not apply: " + ", ".join(skipped) + f" — use {hints} to apply them")
@@ -348,7 +360,7 @@ def _cmd_load(vs, name, cmd, keys):
         text = ""
     new_text = _rewrite_config_lines(text, {k: _fmt(v) for k, _, v in changes}, vs.DAEMON_KEYS)
 
-    backup_path = _backup(vs.CONFIG_PATH) if os.path.exists(vs.CONFIG_PATH) else None
+    backup_path = _backup(vs.CONFIG_PATH) if os.path.exists(vs.CONFIG_PATH) and vs.MAX_BACKUPS != 0 else None   # MAX_BACKUPS = 0 disables backups entirely — no .bak-* file is written
     pruned = _prune_backups(vs.CONFIG_PATH, vs.MAX_BACKUPS) if backup_path else []
     _atomic_write(vs.CONFIG_PATH, new_text)
 
@@ -387,7 +399,7 @@ def cmd_list(vs):
         return values[n].get(c) or "-"
 
     name_w = max([len("preset")] + [len(n) for n in names])
-    cols = [(c, max([len(c)] + [len(cell(n, c)) for n in names])) for c in vs.DAEMON_KEYS]
+    cols = [(c, max([len(c)] + [len(cell(n, c)) for n in names])) for c in vs.DAEMON_KEYS if c not in PRESET_NEVER_APPLIED]   # no permanently empty column for never-applied keys
     print(f"{'preset':<{name_w}}" + "".join(f" {c:<{w}}" for c, w in cols))
     for n in names:
         print(f"{n:<{name_w}}" + "".join(f" {cell(n, c):<{w}}" for c, w in cols))
@@ -456,7 +468,7 @@ def cmd_restore(vs, ref=None):
         if errors:
             raise PresetError(f"refusing to restore {bak} over {vs.CONFIG_PATH} — it does not validate against the current config: " + "; ".join(errors))
 
-    backup_path = _backup(target) if os.path.exists(target) else None   # a restore is itself undoable
+    backup_path = _backup(target) if os.path.exists(target) and vs.MAX_BACKUPS != 0 else None   # a restore is itself undoable (while backups are enabled); MAX_BACKUPS = 0 writes no .bak-* file
     pruned = _prune_backups(target, vs.MAX_BACKUPS) if backup_path else []
     _atomic_write(target, text)
 
@@ -496,10 +508,10 @@ def _parse_ops(ops):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="veloscroll_preset.py",
-        description="Named presets of the veloscroll daemon keys — `save` snapshots every key; each load command applies only its own group: loaddistances (DEADZONE_IN/FULL_IN + _H), loadfeel (the 8 rate/curve/smoothing feel keys), loadkeys (SCROLL_BTN/SCROLL_BTN_H/DISABLED_BTN), loaddevice (NAME_MATCH/DEVICE_MATCH/DPI), loadscroll (TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H) or loadall (everything except the key and device groups). "
+        description="Named presets of the veloscroll daemon keys — `save` snapshots every key except MAX_BACKUPS (per-machine backup policy, set it in config.ini); each load command applies only its own group: loaddistances (DEADZONE_IN/FULL_IN + _H), loadfeel (the 8 rate/curve/smoothing feel keys), loadkeys (SCROLL_BTN/SCROLL_BTN_H/DISABLED_BTN), loaddevice (NAME_MATCH/DEVICE_MATCH/DPI), loadscroll (TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H) or loadall (everything except the key and device groups). "
                     "Any number of `COMMAND NAME` pairs run in one invocation, each with its own preset name, applied in order; list/backups/restore run alone.",
         epilog="examples:\n"
-               "  veloscroll_preset.py save fast                        snapshot every daemon key -> presets/fast.ini\n"
+                "  veloscroll_preset.py save fast                        snapshot every daemon key except MAX_BACKUPS -> presets/fast.ini\n"
                "  veloscroll_preset.py loadfeel fast                    apply only the feel keys of 'fast'\n"
                "  veloscroll_preset.py loadfeel a loaddistances b       multiple loads in one run, each with its own preset (applied in order)\n"
                "  veloscroll_preset.py list                             table of every preset's values\n"

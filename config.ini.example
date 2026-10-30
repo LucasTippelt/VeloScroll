@@ -21,8 +21,6 @@ OUT_SMOOTH = 0.8
 ; 0..1 how quickly the rate follows the target (lower = smoother, higher = snappier).
 INVERT = False
 ; True/False: flip scroll direction (set true if your DE has "natural scrolling" enabled).
-TICK = 0.004
-; ticker loop period in seconds (0.004 s ≈ 250 Hz); not a feel setting, only lower it if scrolling still looks steppy (more CPU).
 
 ; --- feel --- horizontal ramp overrides (optional) ---------------------------------------
 
@@ -77,3 +75,16 @@ LOG_LEVEL = 2
 LATENCY_LOG = False
 ; LATENCY_LOG — True/False: collect per-event timing and log one summary line per second, plus a computed
 ; latency model on startup/config change. Debugging only; lines are independent of LOG_LEVEL.
+
+; --- misc ----------------------------------------------------------------------
+TICK = 0.004
+; ticker loop period in seconds (0.004 s ≈ 250 Hz);
+; Do not touch TICK if you don't know what you're doing. It only affects Latency for ACTIVE scrolls (i.e. when you press/hold the button).
+; Very high tick rate makes scrolling unresponsive, very low tick rate may make scrolling skip speeds/less smooth and costs more CPU.
+
+; --- backups (helper scripts) ---------------------------------------------------
+
+MAX_BACKUPS = 5
+; How many .bak-<timestamp> backups the preset helper and seed script keep per file family:
+; -1 = unlimited, N >= 1 = keep only the newest N, 0 = disable backups entirely (no backup files are written).
+; Hot-reloaded like every other key; each helper run reads the current value.

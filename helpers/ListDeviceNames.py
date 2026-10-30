@@ -9,7 +9,7 @@
 # prints every /dev/input/event* node with its name and USB vendor/product ID pair, so you can read off
 # DEVICE_MATCH (the exact `0x46d, 0xc084` pair) or a NAME_MATCH fragment:
 #
-#     sudo python3 /opt/veloscroll/ListDeviceNames.py
+#     sudo python3 /opt/veloscroll/helpers/ListDeviceNames.py
 #
 # Run as root, or as a user in the input group — devices you can't open are skipped with a note on stderr.
 

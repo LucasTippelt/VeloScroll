@@ -12,15 +12,14 @@ Nothing here is needed for normal use.
 
 ## Advanced notes (not needed for normal use)
 
-`DE_WM` and `VIRTUAL_NAME` at the top of `veloscroll.py` belong to `veloscroll_seed.py`, and `MAX_BACKUPS` is shared with the preset helper ([`veloscroll_preset.py`](PRESETS.md)). All three are intentionally **not** in `config.ini`.
+`DE_WM` and `VIRTUAL_NAME` at the top of `veloscroll.py` belong to `veloscroll_seed.py`. Both are intentionally **not** in `config.ini`.
 
 Only touch them if you maintain a fork or run an unusual setup. Like every edit to `veloscroll.py`, changes need a restart (`sudo systemctl restart veloscroll`) and will be lost (or conflict) on the next [update](UPDATING.md).
 
 | Constant | Meaning |
 |----------|---------|
-| `DE_WM` | Which pointer-settings backend the seed script uses. Supported values live in its backend registry (`BACKENDS`, currently only `kde-plasma`; per-DE guides in [`docs-desktop/`](docs-desktop/)). An unknown value makes the seed script exit with an error listing the supported ones. |
+| `DE_WM` | Which pointer-settings backend the seed script uses. Supported values live in its backend registry (`BACKENDS`, currently only `kde-plasma`; per-DE guides in [`docs-desktop/`](../docs-desktop/)). An unknown value makes the seed script exit with an error listing the supported ones. |
 | `VIRTUAL_NAME` | Name of the virtual device (default `veloscroll-mouse`). It is advertised together with your real mouse's USB IDs, so per-device pointer rules might apply to it automatically. The seed script looks for exactly this name, so keep the default unless you run several daemon instances side by side. |
-| `MAX_BACKUPS` | Maximum number of `.bak-*` backups kept per file family: the seed's `kcminputrc.bak-*` (only relevant on DEs with per-device settings) and the preset helper's `config.ini.bak-*` / `<name>.ini.bak-*`. `-1` = unlimited, `N ≥ 1` = keep only the newest N after each run that writes a backup. The default is `5`, so backups created by preset loads don't clutter your filesystem. Not hot-reloadable: like every other `veloscroll.py` constant, changes need a restart. |
 
 ### Pointing the daemon at another config file
 
@@ -47,13 +46,14 @@ Run as your **desktop user, not root** (as root it would target `/root/.config`)
 
 ### Backups
 
-A backup of the config file (`~/.config/kcminputrc.bak-<timestamp>`) is written only when seed or `--remove-stale-config` actually changes it. That means:
+A backup of the config file (`~/.config/kcminputrc.bak-<timestamp>`) is written only when seed or `--remove-stale-config` actually changes it, and only while backups are enabled. That means:
 
 - on **KDE Plasma only**, the only backend with per-device settings (on other desktops VeloScroll never writes any config file, hence no backups),
 - not for runs where nothing changed,
-- not for `--apply-only`.
+- not for `--apply-only`,
+- not at all when `MAX_BACKUPS = 0` in `config.ini` — backups are disabled entirely and existing `.bak-*` files stay untouched.
 
-Each backup keeps the previous state recoverable. Cap how many are kept with `MAX_BACKUPS` (default 5; see [above](#advanced-notes-not-needed-for-normal-use)), a constant at the top of `veloscroll.py`.
+Each backup keeps the previous state recoverable. How many are kept per file family is capped by that same hot-reloaded `MAX_BACKUPS` key (`-1` = unlimited, default `5`) (see [Configuration → Backups](CONFIGURATION.md#backups-helper-scripts)).
 ---
 
 ## Latency & debugging
