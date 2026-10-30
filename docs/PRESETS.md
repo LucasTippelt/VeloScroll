@@ -66,7 +66,7 @@ sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast loaddistances qu
 
 Preset files live in `<config dir>/presets/`: `/etc/veloscroll/presets/` by default, or next to your config when using `VELOSCROLL_CONFIG`.
 
-The repo bundles the five [`TUNING.md`](TUNING.md) cases as partial presets (the four vertical feel keys each) in `presets.example/`. Install them with:
+The repo bundles the [`TUNING.md`](TUNING.md) cases as partial presets (the vertical feel keys each) in `presets.example/`. Install them with:
 
 ```bash
 sudo mkdir -p /etc/veloscroll/presets
