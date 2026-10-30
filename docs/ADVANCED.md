@@ -53,8 +53,7 @@ A backup of the config file (`~/.config/kcminputrc.bak-<timestamp>`) is written 
 - not for runs where nothing changed,
 - not for `--apply-only`.
 
-Each backup keeps the previous state recoverable. Cap how many are kept with `MAX_BACKUPS` (default 5; see [above](#advanced-notes-not-needed-for-normal-use)), a constant at the top of `veloscroll.py` that is intentionally not hot-reloadable.
-
+Each backup keeps the previous state recoverable. Cap how many are kept with `MAX_BACKUPS` (default 5; see [above](#advanced-notes-not-needed-for-normal-use)), a constant at the top of `veloscroll.py`.
 ---
 
 ## Latency & debugging
@@ -113,7 +112,7 @@ latency: input p50=2.1ms p95=8.4ms max=21.7ms n=1204 | tick period=4.0ms overrun
 | High input p95 (p50 fine) | USB power management, flaky cable/port, kernel scheduler load. Try another port/cable, disable USB autosuspend for the mouse. |
 | `tick period` > `TICK` or frequent overruns | CPU saturation or GIL stalls (e.g. config reloads, slow uinput writes). Check system load and `uinput_write_max`. |
 | Large `press->emit`, small `crossing->emit` | Normal: you spent time moving past the deadzone. Not a bug; lower `DEADZONE_IN` if starting feels slow. |
-| Healthy daemon lines but scrolling still looks laggy | Compositor/app side (frame pacing, app smooth-scroll settings). Out of scope for this daemon. |
+| Healthy daemon lines but scrolling still looks laggy | Likely: Compositor/app side (frame pacing, app smooth-scroll settings). Out of scope for this daemon. You can try to lower `TICK` even further if system load/overruns look fine. **Be careful with this, I would advice AGAINST going above 1000hz (0.001).**|
 
 ---
 
