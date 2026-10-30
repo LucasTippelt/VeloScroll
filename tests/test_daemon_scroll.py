@@ -2,7 +2,9 @@
 
 Behavior pinned here is the *actual* product behavior: while any scroll button is held, ALL REL_X/REL_Y
 events are swallowed by run() regardless of active axis (veloscroll.py — the cursor stays put in both v- and h-mode),
-and wheel events while held are dropped too."""
+and wheel events while held are dropped too — except while BTN_LEFT is also down (drag-select): then movement and
+physical wheel pass through to move the virtual cursor, velocity output pauses, and a left release resumes the
+session from a fresh origin."""
 import time
 
 from evdev import ecodes as e
@@ -149,7 +151,9 @@ def test_vertical_h_mode_accumulates_rel_y_and_emits_vertical_wheel(sim):
 
 def test_free_events_pass_through_held_rels_and_wheel_are_swallowed(sim):
     with sim() as s:
-        push(s.dev, e.EV_KEY, e.BTN_LEFT, 1)       # not held -> passes through to the virtual mouse
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 1)       # not held -> passes through to the virtual mouse...
+        time.sleep(0.05)
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 0)       # ...and release it: a left still down would arm drag mode for the session below
         time.sleep(0.05)
         _press(s, e.BTN_SIDE)
         push(s.dev, e.EV_REL, e.REL_X, 5)                    # held v-mode: REL_X swallowed (cursor frozen)...
@@ -166,6 +170,7 @@ def test_free_events_pass_through_held_rels_and_wheel_are_swallowed(sim):
 
     assert s.ui.writes == [
         ("ev", e.EV_KEY, e.BTN_LEFT, 1),
+        ("ev", e.EV_KEY, e.BTN_LEFT, 0),
         ("ev", e.EV_REL, e.REL_WHEEL, 1),
         ("ev", e.EV_REL, e.REL_WHEEL_HI_RES, -2),
         ("ev", e.EV_REL, e.REL_HWHEEL, 3),
@@ -214,3 +219,70 @@ def test_grab_line_and_virtual_device_identity(sim, capsys):
     out = capsys.readouterr().out                  # ...while run()'s thread prints its grab line (LOG_LEVEL 2 >= 1)
     assert "grabbed sim://mouse Fallback Sim Mouse" in out
     assert "virtual mouse now advertises 0x1234:0x5678" in out   # the fake device's USB IDs cloned onto the virtual mouse
+
+
+# ---------------- left-button drag-select (BTN_LEFT held during a session) ----------------
+
+def test_drag_forwards_motion_and_pauses_velocity(sim):
+    with sim() as s:
+        _press(s, e.BTN_SIDE)
+        push(s.dev, e.EV_REL, e.REL_Y, 9999)         # clamps to FULL=4000 -> steady max-rate emission
+        time.sleep(0.35)
+
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 1)         # left down mid-session: velocity output pauses...
+        time.sleep(0.1)                              # ...residual rate decays away (~5 ticks at default TICK/OUT_SMOOTH)
+        n = len(list(s.ui.writes))
+
+        push(s.dev, e.EV_REL, e.REL_X, 7)            # cursor follows the hand: REL events pass through...
+        push(s.dev, e.EV_REL, e.REL_Y, -9)           # ...in both axes (not accumulated into offset)...
+        push(s.dev, e.EV_REL, e.REL_WHEEL_HI_RES, 2) # ...and physical wheel passes through too
+        time.sleep(0.3)                              # ~75 more ticks: velocity output stays paused
+
+        _release(s, e.BTN_SIDE)                      # session ends (the scroll-button release edge is consumed, as always); frozen accumulators persist for inspection
+        with s.vs.lock:
+            assert s.vs.offset == s.vs.FULL          # REL movement during drag never accumulated (frozen at the clamp value)
+
+    writes = list(s.ui.writes)
+    assert writes[n:] == [                           # after the pause settles, only the drag passthroughs appear...
+        ("ev", e.EV_REL, e.REL_X, 7),
+        ("ev", e.EV_REL, e.REL_Y, -9),
+        ("ev", e.EV_REL, e.REL_WHEEL_HI_RES, 2),     # ...no new wheel emissions (3-tuples) while left is down
+    ]
+
+
+def test_left_release_resumes_from_fresh_origin(sim):
+    with sim() as s:
+        _press(s, e.BTN_SIDE)
+        push(s.dev, e.EV_REL, e.REL_Y, 9999)         # clamps to FULL=4000 -> steady max-rate emission...
+        time.sleep(0.35)
+
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 1)         # drag: cursor moves (passthrough), offset frozen at FULL...
+        push(s.dev, e.EV_REL, e.REL_Y, -24)          # ...velocity output paused
+        time.sleep(0.1)
+
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 0)         # left release -> fresh origin (offset = h_offset = 0)...
+        time.sleep(0.05)                             # ...release passthrough lands; the rate is already zeroed by then
+        n = len(list(s.ui.writes))
+
+        push(s.dev, e.EV_REL, e.REL_Y, 16)           # normal hold mode again: swallowed for velocity math...
+        push(s.dev, e.EV_REL, e.REL_Y, 8)            # ...total 24 counts < 32-count deadzone -> stays silent; without the reset, offset would sit at FULL and emit at max rate
+        time.sleep(0.35)
+
+    assert s.ui.writes[n:] == []                     # nothing new after the release: no passthroughs (swallowed again), no wheel emissions
+
+
+def test_left_down_before_side_press_arms_drag_mode(sim):
+    with sim() as s:
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 1)         # free left press passes through (no session yet)...
+        time.sleep(0.05)
+
+        _press(s, e.BTN_SIDE)                        # session starts already in drag mode...
+        push(s.dev, e.EV_REL, e.REL_X, 12)           # ...movement is forwarded to the virtual cursor...
+        push(s.dev, e.EV_REL, e.REL_Y, -6)           # ...in both axes (never accumulated)...
+        time.sleep(0.35)                             # ...and no velocity output ever happens
+
+    assert s.ui.writes == [                          # every write is a passthrough — zero wheel emissions
+        ("ev", e.EV_KEY, e.BTN_LEFT, 1),
+        ("ev", e.EV_REL, e.REL_X, 12),
+        ("ev", e.EV_REL, e.REL_Y, -6),
+    ]

@@ -203,3 +203,17 @@ def test_d7_vertical_h_flip_also_clears_held_state(vs):
         assert not (vs.held or vs.held_v or vs.held_h)
         assert vs.ticker_reset is True
     assert vs.VERTICAL_H is True
+
+
+def test_d7_button_swap_also_clears_stale_btn_left_down(vs):
+    with vs.lock:
+        vs.held = True
+        vs.btn_left_down = True                    # stale flag from a forced session reset while left was physically down...
+
+    values = dict(vs._DEFAULTS)
+    values["SCROLL_BTN"] = e.BTN_TASK               # differs from the current BTN_SIDE -> D7 path
+    vs.apply_values(values)
+
+    with vs.lock:
+        assert not (vs.held or vs.held_v or vs.held_h)
+        assert vs.btn_left_down is False            # ...a stale flag can never arm drag mode on the next session

@@ -154,6 +154,7 @@ This is fine for normal mice. If a button you need reports outside 256–287 and
 - The cursor stays put.
 - Movement on the active axis is consumed for velocity math.
 - Wheel events from the physical mouse are swallowed.
+- Exception: holding `BTN_LEFT` during a session moves the cursor instead (click/drag works as usual, e.g. text selection); movement and wheel pass through, velocity output pauses while it is down, and releasing left resumes the session from the current position with a fresh origin.
 - Releasing the button (or tapping it off) restores normal behavior immediately.
 
 ### Using both scroll buttons

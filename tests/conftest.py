@@ -38,7 +38,7 @@ os.environ.setdefault("VELOSCROLL_CONFIG", _DEFAULT_CONFIG_ENV)
 # runtime globals that must be restored after every test (see veloscroll.py module state)
 _STATE_KEYS = (
     "DEADZONE", "FULL", "DEADZONE_H", "FULL_H",
-    "held", "held_v", "held_h", "mode", "offset", "h_offset", "acc_notch", "ticker_reset",
+    "held", "held_v", "held_h", "mode", "offset", "h_offset", "acc_notch", "ticker_reset", "btn_left_down",
     "_cfg_stat", "_cfg_load_info",
 )
 

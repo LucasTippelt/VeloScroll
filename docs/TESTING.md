@@ -18,7 +18,7 @@ Then run the whole suite from the repo root:
 python3 -m pytest tests/ --tb=short        # everything (~30 s; the hot-reload e2e test is ~18 s of that)
 python3 -m pytest tests/test_daemon_scroll.py            # one file
 python3 -m pytest "tests/test_check_config.py::test_invalid_values"   # one (parameterized) test
-python3 -m pytest tests/ --collect-only -q               # list all 294 tests without running them
+python3 -m pytest tests/ --collect-only -q               # list all 318 tests without running them
 ```
 
 The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tests/ --tb=short` on ubuntu-latest after `pip install -r requirements-dev.txt`.
@@ -117,6 +117,9 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 - `test_release_stops_emitting_permanently` — no further emission after the hold ends, even with more motion
 - `test_startup_output_reports_config_overrides` — real startup path prints `config loaded from <path> (N override(s))`
 - `test_grab_line_and_virtual_device_identity` — grab log line and the virtual device advertising the grabbed mouse's USB IDs
+- `test_drag_forwards_motion_and_pauses_velocity` — left held mid-session: REL movement and physical wheel pass through to the virtual cursor while velocity output stays paused; offset accumulation freezes at its clamped value (exact write-list equality)
+- `test_left_release_resumes_from_fresh_origin` — releasing left mid-session resets the origin: sub-deadzone movement afterwards emits nothing (without the reset, a FULL-scale offset would emit at max rate); also pins the quick-click edge case
+- `test_left_down_before_side_press_arms_drag_mode` — left pressed before the session starts arms drag mode immediately; every write is a passthrough with zero wheel emissions
 
 **`tests/test_daemon_toggle_dualaxis.py`** — toggle latches and dual-axis rules:
 - `test_toggle_latch_release_edge_and_repeat_are_noop` — a toggled button latches on press; release edges and key-repeat don't retrigger
@@ -134,7 +137,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 - `test_missing_file_logged_once_then_silent_until_recreated` — deletion logs one em-dash notice, then silence until the file returns
 - `test_latency_log_enable_resets_epoch_and_prints_model` — turning LATENCY_LOG on resets the timing epoch and prints the model line
 - `test_model_key_change_reprints_model_at_new_values` — changing TICK/OUT_SMOOTH/MIN_RATE reprints the model with the new numbers (`tick=8.0ms`)
-- `test_d7_button_swap_clears_stuck_held_state`, `…_toggle_mode_flip_also_clears_held_state`, `…_vertical_h_flip_also_clears_held_state` — D7 rule: swapping any engagement key clears a stuck held state and all accumulators
+- `test_d7_button_swap_clears_stuck_held_state`, `…_toggle_mode_flip_also_clears_held_state`, `…_vertical_h_flip_also_clears_held_state`, `test_d7_button_swap_also_clears_stale_btn_left_down` — D7 rule: swapping any engagement key clears a stuck held state, all accumulators and the stale `btn_left_down` drag flag
 
 **`tests/test_supervisor.py`** — the device watcher thread:
 - `test_failed_scan_is_logged_and_changes_nothing` — an exception inside the scan logs level-0 `scan failed:` and neither starts nor stops anything

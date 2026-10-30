@@ -288,7 +288,7 @@ def _log(level, msg):
 
 def apply_values(v):
     """Assign all 26 keys under the lock; returns [(key, old, new)] for changed keys."""
-    global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, _cfg_stat
+    global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, btn_left_down, _cfg_stat
     changed = []
     with lock:
         prev_btn = SCROLL_BTN
@@ -314,6 +314,7 @@ def apply_values(v):
             offset = h_offset = 0
             acc_notch = 0
             ticker_reset = True
+            btn_left_down = False                  # a stale left-down flag must never arm drag mode on the next session
         for key, old, new in changed:          # enabling LATENCY_LOG: start a fresh observation epoch (no stale windows/hold ts)
             if key == "LATENCY_LOG" and new is True and old is not True:
                 _lat_reset_hold()
@@ -345,6 +346,7 @@ offset = 0              # vertical distance from the press point, in counts
 h_offset = 0            # H-mode distance from the press point, in counts — REL_X (left/right) normally; REL_Y (up/down) when VERTICAL_H is true
 acc_notch = 0
 ticker_reset = True     # one-shot flag: ticker zeroes rate/acc on next tick (new hold / axis switch)
+btn_left_down = False   # BTN_LEFT physically down — while held during a session, drag mode forwards movement to the cursor and pauses velocity output
 lock = threading.Lock()
 
 active = {}             # path -> thread handling that device (started by supervisor)
@@ -607,7 +609,9 @@ def ticker():
             else:
                 dz, full, min_r, max_r, curve = DEADZONE, FULL, MIN_RATE, MAX_RATE, CURVE
                 smooth = OUT_SMOOTH
-            if dist <= dz:
+            if btn_left_down:                        # drag mode (left held during a session): pause velocity output until release; the decay below settles rate to zero
+                target = 0.0
+            elif dist <= dz:
                 target = 0.0
             else:
                 frac = min(1.0, (dist - dz) / (full - dz))
@@ -643,7 +647,7 @@ def ticker():
 
 
 def run(path):
-    global held, held_v, held_h, mode, offset, h_offset, acc_notch, ticker_reset
+    global held, held_v, held_h, mode, offset, h_offset, acc_notch, ticker_reset, btn_left_down
     try:
         dev = evdev.InputDevice(path)
     except OSError as exc:
@@ -751,7 +755,20 @@ def run(path):
                 if ev.type == e.EV_KEY and ev.code == DISABLED_BTN:
                     continue
 
-                if held and ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
+                # BTN_LEFT edge tracking for drag-select; placed after the blocks above so a consumed/disabled
+                # left button can never arm it. The event is NOT consumed — press/release/repeat still pass through below,
+                # so clicks behave exactly as before. A release mid-session resumes from a fresh origin (no rate jump).
+                if ev.type == e.EV_KEY and ev.code == e.BTN_LEFT:
+                    if ev.value == 1:
+                        btn_left_down = True
+                    elif ev.value == 0:
+                        btn_left_down = False
+                        if held:                     # fresh origin so the next movement scrolls from zero again
+                            offset = h_offset = 0
+                            acc_notch = 0
+                            ticker_reset = True
+
+                if held and not btn_left_down and ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
                     if mode == "v" and ev.code == e.REL_Y:
                         offset = max(-FULL, min(FULL, offset + ev.value))
                         if LATENCY_LOG and _lat["cross_ts"] is None and abs(offset) > DEADZONE:
@@ -762,7 +779,8 @@ def run(path):
                             _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
                     continue
 
-                if held and ev.type == e.EV_REL and ev.code in (
+                # wheel while held is swallowed — except in drag mode (left down), where it passes through like an unmediated mouse
+                if held and not btn_left_down and ev.type == e.EV_REL and ev.code in (
                         e.REL_WHEEL, e.REL_WHEEL_HI_RES, e.REL_HWHEEL, e.REL_HWHEEL_HI_RES):
                     continue
 

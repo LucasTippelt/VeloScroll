@@ -1,10 +1,31 @@
 [Unit]
 Description=Veloscroll v1.2 - velocity scrolling
+# stop crash-looping instead of restarting forever (5 failures / 60 s -> failed state)
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 ExecStart=/usr/bin/python3 /opt/veloscroll/veloscroll.py
 Restart=on-failure
 RestartSec=1
+# --- sandboxing: the daemon only reads config.ini, opens /dev/input/* + /dev/uinput, and logs to stdout/journal ---
+NoNewPrivileges=true
+# ProtectSystem=strict: whole FS read-only except API fs (/dev, /proc, /sys) — reading /etc/veloscroll/config.ini still works
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# RestrictRealtime: daemon never sets realtime scheduling; 250 Hz ticker uses plain sleep
+RestrictRealtime=true
+# no networking at all
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+# Deliberately NOT set: PrivateDevices (needs /dev/input/* + /dev/uinput), CapabilityBoundingSet
+# (CAP_EVDEV is required to grab devices as root), SystemCallFilter (too risky without per-distro validation).
 
 [Install]
 WantedBy=multi-user.target

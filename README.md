@@ -27,7 +27,7 @@ Each guide in the reading order links to the next one at the bottom.
 - **Variable-velocity scrolling:** While you hold a configured mouse button, moving the mouse scrolls at a speed proportional to your distance from the initial press point.
 - **Configurable activation button:** Map any mouse button (not just the middle one) to trigger scrolling via `SCROLL_BTN`, using an evdev name like `BTN_SIDE` or a decimal code.
 - **Hold or toggle mode:** By default you hold the button to scroll. Setting `TOGGLE_SCROLL = true` switches to tap-to-toggle (tap to start, tap again to stop).
-- **Cursor lock during scroll:** While a scroll session is active, the cursor stays put and movement is consumed for velocity math rather than moving the pointer. Releasing the button restores normal behavior immediately.
+- **Cursor lock during scroll:** While a scroll session is active, the cursor stays put and movement is consumed for velocity math rather than moving the pointer. Releasing the button restores normal behavior immediately — except while `BTN_LEFT` is held, which moves the cursor normally (click/drag works, e.g. text selection) with velocity output paused until it is released.
 - **Dual-axis support:** An optional second button (`SCROLL_BTN_H`) enables horizontal scrolling (driven by mouse X movement). With `VERTICAL_H = true` it acts as a second vertical scroll with its own curve, driven by mouse up/down movement.
 
 ### ⚙️ Deep configuration and tuning
@@ -75,6 +75,6 @@ All helper scripts live in the [`helpers/`](helpers/) directory; only `veloscrol
 
 - **Latency logging:** Setting `LATENCY_LOG = true` emits per-second summary lines with measured latencies (input p50/p95/max, tick period, press→emit, crossing→emit, `uinput_write_max`) plus a theoretical model line at startup. See [Latency & debugging](docs/ADVANCED.md#latency--debugging).
 - **Log levels:** `LOG_LEVEL` (0–3) controls verbosity, from errors-only to debug.
-- **Systemd service:** Ships with `veloscroll.service`, a root system unit for automatic restarts. Can also run standalone or as a per-user unit.
+- **Systemd service:** Ships with `veloscroll.service`, a sandboxed root system unit for automatic restarts (hardened with protection directives and crash-loop start limits). Can also run standalone or as a per-user unit.
 - **Hot-reload for device changes:** Switching mice requires no restart. The daemon applies the new `DEVICE_MATCH` within ~2 seconds and releases the old device automatically.
 - **Backup system:** The preset helper and seed script create `.bak-<timestamp>` backups. `MAX_BACKUPS` in `config.ini` (hot-reloaded) controls the policy: `-1` = unlimited, `N ≥ 1` = keep only the newest N per file family, `0` = backups disabled entirely (no backup files are written; existing ones stay untouched).

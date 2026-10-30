@@ -4,6 +4,20 @@ All notable changes to VeloScroll are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+#### Core daemon (`veloscroll.py`)
+
+- Left-button drag-select during a scroll session: while `BTN_LEFT` is held (or latched) alongside an active session, mouse movement and physical wheel events pass through to the virtual cursor so normal click/drag works (e.g. text selection); velocity output pauses while it is down, and releasing left resumes the session from the current position as a fresh origin so there is no rate jump. Always on — no new config key; `BTN_LEFT` keeps its single role if assigned as SCROLL_BTN or DISABLED_BTN.
+
+### Changed
+
+#### systemd integration (`veloscroll.service`)
+
+- Service unit hardened with sandboxing directives: `NoNewPrivileges`, `ProtectSystem=strict` + `ProtectHome`, `PrivateTmp`, kernel tunables/modules/logs and control-group protection, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, and `RestrictAddressFamilies=AF_UNIX AF_NETLINK` (no networking at all). Crash-loop start limits added (`StartLimitIntervalSec=60` + `StartLimitBurst=5`: five failures within 60 s move the unit to failed state instead of restarting forever — recover with `systemctl reset-failed veloscroll`). As always, re-copy the updated unit into `/etc/systemd/system/` and run `sudo systemctl daemon-reload`.
+
+## [v1.2] - 2026-10-31
+
 ### Changed
 
 #### Helper scripts moved to `helpers/`
