@@ -147,7 +147,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 
 ### E2E tier (real programs as subprocesses)
 
-**`tests/test_startup_matrix.py`** — imports `veloscroll.py` in a fresh subprocess via `tests/probe_values.py`, which prints the effective values of all 26 daemon keys after the real startup block ran:
+**`tests/test_startup_matrix.py`** — imports `veloscroll.py` in a fresh subprocess via `tests/probe_values.py`, which prints the effective values of all 27 daemon keys after the real startup block ran:
 - `test_missing_file_pure_defaults` — no file → exactly the built-in defaults, no "config loaded" line
 - `test_partial_overlay_and_override_count` — a partial ini overlays only its keys and reports `(3 override(s))`
 - `test_malformed_value_exits_1`, `test_range_violation_from_check_config`, `test_malformed_ini_structure_exits_1` — parse errors, check_config errors and broken INI structure each exit 1 with the exact `config error: …` message before any device access

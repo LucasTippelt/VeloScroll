@@ -2,7 +2,7 @@
 
 `veloscroll_preset.py` switches between named presets of the VeloScroll daemon keys without hand-editing `config.ini`.
 
-`save <name>` snapshots every daemon key except `MAX_BACKUPS` into `<config dir>/presets/<name>.ini`. Each `load` command applies only its own group of keys — and no load ever touches `MAX_BACKUPS`, which stays a per-machine setting in `config.ini`. A load is an atomic, pre-validated rewrite of only that group's lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s.
+`save <name>` snapshots every daemon key except `MAX_BACKUPS` and `STATE_FILE` into `<config dir>/presets/<name>.ini`. Each `load` command applies only its own group of keys — and no load ever touches `MAX_BACKUPS` or `STATE_FILE`, both per-machine settings that stay in `config.ini`. A load is an atomic, pre-validated rewrite of only that group's lines (comments and ordering are preserved), so the daemon's normal hot-reload picks it up within ~2 s.
 
 ## Contents
 
@@ -24,7 +24,7 @@ Run them as `python3 /opt/veloscroll/veloscroll_preset.py <command> ...`.
 
 | Command | Effect |
 |---------|--------|
-| `save <name>` | Snapshot every daemon key except `MAX_BACKUPS` (backup policy is per-machine) to `/etc/veloscroll/presets/<name>.ini` (`*_H` keys only when set in `config.ini`). |
+| `save <name>` | Snapshot every daemon key except `MAX_BACKUPS` and `STATE_FILE` (both per-machine operational state) to `/etc/veloscroll/presets/<name>.ini` (`*_H` keys only when set in `config.ini`). |
 | `loaddistances <name>` | Apply the physical distance keys present in the preset: `DEADZONE_IN` / `FULL_IN` + `_H`. |
 | `loadfeel <name>` | Apply only the 8 feel keys: `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH` + their `_H` variants. |
 | `loadkeys <name>` | Apply the button bindings: `SCROLL_BTN` / `SCROLL_BTN_H` / `DISABLED_BTN`. |
@@ -79,7 +79,7 @@ Partial and older preset files work as-is: a load only ever applies the keys tha
 
 ## What `save` captures
 
-Every daemon key except `MAX_BACKUPS` is written (the `config.ini` value, else the built-in default) — backup policy is per-machine operational state, so a preset never captures it and no load command (including `loadall`) ever applies it. If a hand-edited preset file contains `MAX_BACKUPS`, every load warns about it on stderr and ignores it (an invalid value there can't fail the load either, since it is never applied or validated).
+Every daemon key except `MAX_BACKUPS` and `STATE_FILE` is written (the `config.ini` value, else the built-in default) — both are per-machine operational state (`MAX_BACKUPS` = backup policy, `STATE_FILE` = GUI state-file switch), so a preset never captures either one and no load command (including `loadall`) ever applies them. If a hand-edited preset file contains either key, every load warns about it on stderr and ignores it (an invalid value there can't fail the load either, since it is never applied or validated).
 
 The other exception is `*_H` keys, which are written **only when explicitly set** in `config.ini`. That way an unset axis keeps its fallback-to-vertical relation on any machine, instead of baking a stale number into the preset.
 

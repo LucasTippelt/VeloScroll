@@ -247,6 +247,15 @@ def test_resolve_missing_name_errors(tmp_path):
     assert "no backup named" in str(exc.value)
 
 
+# ---------------- PRESET_NEVER_APPLIED ----------------
+
+def test_never_applied_keys_are_daemon_keys_excluded_from_loadall(vs):
+    assert vp.PRESET_NEVER_APPLIED == ("MAX_BACKUPS", "STATE_FILE")   # per-machine operational state — set directly in config.ini
+    for key in vp.PRESET_NEVER_APPLIED:
+        assert key in vs.DAEMON_KEYS                    # must stay valid daemon keys...
+        assert key in vp.LOADALL_EXCLUDED               # ...and loadall never applies them
+
+
 # ---------------- _covering_cmds ----------------
 
 def test_covering_cmds_group_keys_and_loadall(vs):

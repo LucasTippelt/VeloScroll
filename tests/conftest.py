@@ -6,7 +6,7 @@ calls sys.exit(1) on a broken config (veloscroll.py startup block). A missing fi
 yields pure code defaults, which every tier expects as the baseline state.
 
 All fixtures restore every daemon global afterwards — the module is deliberately
-global-heavy (26 config keys + derived counts + held-state), and tests must never
+global-heavy (27 config keys + derived counts + held-state), and tests must never
 leak state into each other.
 """
 import contextlib
@@ -34,12 +34,19 @@ _DEFAULT_CONFIG_ENV = os.path.join(tempfile.gettempdir(), f"veloscroll-pytest-{o
 assert not os.path.exists(_DEFAULT_CONFIG_ENV), "expected the default test config path to be absent"
 os.environ.setdefault("VELOSCROLL_CONFIG", _DEFAULT_CONFIG_ENV)
 
+# same guard for the state file (STATE_FILE = True): any accidental write lands in /tmp, never /run/veloscroll
+_DEFAULT_STATE_ENV = os.path.join(tempfile.gettempdir(), f"veloscroll-pytest-{os.getpid()}-state")
+assert not os.path.exists(_DEFAULT_STATE_ENV), "expected the default test state path to be absent"
+os.environ.setdefault("VELOSCROLL_STATE_FILE", _DEFAULT_STATE_ENV)
+
 
 # runtime globals that must be restored after every test (see veloscroll.py module state)
 _STATE_KEYS = (
     "DEADZONE", "FULL", "DEADZONE_H", "FULL_H",
     "held", "held_v", "held_h", "mode", "offset", "h_offset", "acc_notch", "ticker_reset", "btn_left_down",
     "_cfg_stat", "_cfg_load_info",
+    "CONFIG_PATH",   # hot-reload/parse tests point it at tmp files; a leaked path must never outlive its test
+    "_state_writing",   # the sim harness flips this on (like main()); unit tests must start from the fresh-import value
 )
 
 
@@ -55,7 +62,7 @@ def vs(veloscroll_module):
     v = veloscroll_module
     keys = tuple(v.DAEMON_KEYS) + _STATE_KEYS
     snapshot = {k: getattr(v, k) for k in keys}
-    dict_snapshots = {n: dict(getattr(v, n)) for n in ("active", "devices", "last_fail_log")}
+    dict_snapshots = {n: dict(getattr(v, n)) for n in ("active", "devices", "last_fail_log", "_read_stop", "_release_ts")}
     yield v
     for key, val in snapshot.items():
         setattr(v, key, val)
@@ -118,6 +125,7 @@ def sim(tmp_path, reload_vs, monkeypatch):
         def _cm():
             with reload_cm as (v, startup_out):
                 bus = install_fakes(monkeypatch, v)
+                v._state_writing = True   # sim runs the daemon loop without main(); enable state writes exactly like main() would
                 threads = [
                     threading.Thread(target=v.ticker, daemon=True),
                     threading.Thread(target=v.run, args=("sim://mouse",), daemon=True),

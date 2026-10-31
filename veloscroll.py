@@ -7,8 +7,11 @@
 
 import configparser
 import errno
+import json
 import math
 import os
+import select
+import stat as _fstat
 import sys
 import threading
 import time
@@ -55,6 +58,7 @@ INVERT = False
 TICK = 0.004                        # ticker loop period in seconds (0.004 s ≈ 250 Hz): how often the scroll rate is recomputed and events are emitted; lower = smoother but more CPU — not a feel setting
 LOG_LEVEL = 2                       # what the daemon logs: 0=errors only, 1=+events, 2=+config detail, 3=+debug
 LATENCY_LOG = False                 # true: log a computed latency model plus one measured per-second summary line (independent of LOG_LEVEL)
+STATE_FILE = False                  # True: write /run/veloscroll/state (JSON status snapshot for GUI frontends); off by default — zero overhead without a GUI; per-machine operational state, never part of presets
 DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
 VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
 MAX_BACKUPS = 5                     # helper-script setting (veloscroll_preset.py + helpers/veloscroll_seed.py): max number of .bak-* backups to keep per file family (config.ini.bak-*, preset <name>.ini.bak-*, kcminputrc.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup, 0 = backups disabled entirely (no .bak-* file is written by any helper run)
@@ -71,8 +75,8 @@ DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCRO
                "TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H",
                "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
                 "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
-                 "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG",
-                 "MAX_BACKUPS")
+                  "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG",
+                  "MAX_BACKUPS", "STATE_FILE")
 _DEFAULTS = {k: globals()[k] for k in DAEMON_KEYS}   # the code defaults, captured before any .ini overlay; a key absent from the file always falls back to these
 
 
@@ -110,7 +114,7 @@ def _parse_ini_value(key, raw):
             return int(raw)                   # decimal code, e.g. 275
         except ValueError:
             raise ConfigError(f"{key} in {CONFIG_PATH}: expected an evdev button name (e.g. BTN_SIDE) or a decimal code (got {raw!r})")
-    if key in ("INVERT", "LATENCY_LOG", "TOGGLE_SCROLL", "VERTICAL_H"):
+    if key in ("INVERT", "LATENCY_LOG", "TOGGLE_SCROLL", "VERTICAL_H", "STATE_FILE"):
         low = raw.lower()
         if low in ("true", "yes", "on", "1"):
             return True
@@ -156,7 +160,7 @@ def _parse_ini_value(key, raw):
 
 
 def load_config():
-    """All 26 daemon keys: the code defaults overlaid with non-empty config.ini values.
+    """All 27 daemon keys: the code defaults overlaid with non-empty config.ini values.
 
     Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
     Bad syntax -> all errors collected and raised as one ConfigError."""
@@ -276,6 +280,8 @@ def check_config(v):
         errors.append(f"LOG_LEVEL must be an integer in the range 0..3 (got {v['LOG_LEVEL']!r})")
     if not isinstance(v["LATENCY_LOG"], bool):
         errors.append(f"LATENCY_LOG must be a boolean true/false (got {v['LATENCY_LOG']!r})")
+    if not isinstance(v["STATE_FILE"], bool):
+        errors.append(f"STATE_FILE must be a boolean true/false (got {v['STATE_FILE']!r})")
     if not (is_int(v["MAX_BACKUPS"]) and v["MAX_BACKUPS"] >= -1):
         errors.append(f"MAX_BACKUPS must be an integer >= -1 — use -1 (unlimited), 0 (backups disabled) or a positive number of backups to keep (got {v['MAX_BACKUPS']!r})")
     return errors
@@ -287,7 +293,7 @@ def _log(level, msg):
 
 
 def apply_values(v):
-    """Assign all 26 keys under the lock; returns [(key, old, new)] for changed keys."""
+    """Assign all 27 keys under the lock; returns [(key, old, new)] for changed keys."""
     global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, btn_left_down, _cfg_stat
     changed = []
     with lock:
@@ -329,6 +335,7 @@ def apply_values(v):
                 _cfg_stat = (st.st_mtime_ns, st.st_size)
             except OSError:
                 pass
+        _write_state_nolock()          # publish after every accepted apply: startup, accepted reloads, and the moment STATE_FILE flips on
     return changed
 
 
@@ -352,8 +359,73 @@ lock = threading.Lock()
 active = {}             # path -> thread handling that device (started by supervisor)
 last_fail_log = {}      # path -> monotonic time of last grab-failure log for it
 devices = {}            # path -> grabbed InputDevice (stop-on-mismatch: release a mouse the config no longer selects)
+_read_stop = {}         # path -> threading.Event: the supervisor sets it to stop a reader; close() from another thread cannot interrupt a blocked read, but this flag is honored within one select timeout (~0.2 s), so an idle device's EVIOCGRAB drops promptly on release
+_release_ts = {}        # path -> monotonic ts when its stop flag was set (backstop: force-close a wedged reader after 10 s)
 _cfg_stat = None        # (st_mtime_ns, st_size) of the last successfully loaded config.ini; set by startup apply / hot-reload
 _cfg_load_info = None   # (CONFIG_PATH, override_count) after a load_config() that read the file; else None
+
+# --- state file (STATE_FILE = True): JSON status snapshot for GUI frontends -------------------
+# Written atomically (tmp + os.replace) to STATE_PATH as 0644 root under systemd (RuntimeDirectory=veloscroll).
+# The writer takes no lock internally: call sites holding `lock` use _write_state_nolock(); all others _write_state().
+STATE_PATH = os.environ.get("VELOSCROLL_STATE_FILE", "/run/veloscroll/state")   # env override for tests / per-user setups
+_state_writing = False        # flipped True by main(): only a process running the actual daemon loop publishes state — helper scripts that merely import veloscroll must stay side-effect-free (no /run writes, no stdout noise)
+_state_reload_ok = True       # last config load/reload succeeded; a rejected reload flips it to False until the next accepted one
+_state_reload_error = None    # error string of the last rejected reload; None while ok
+STATE_LIVE = os.environ.get("VELOSCROLL_STATE_LIVE") == "1"   # stretch: while a scroll session is held, publish per-tick live metrics to the `live` field below (the GUI's live curve marker reads it); off by default — zero overhead without a consumer
+_state_live = None            # live metrics of the current hold (mode/offset/distance/rate); null when idle or STATE_LIVE is off
+_state_live_ts = 0.0          # monotonic ts of the last live-state write (throttled to ~20 Hz — GUIs poll at a few Hz)
+LIVE_INTERVAL = 0.05          # minimum seconds between live-state writes while held
+_state_write_warn_ts = 0.0    # monotonic ts of the last state-write failure log (rate-limited: status output must not spam)
+
+
+def _write_state_nolock():
+    """Write STATE_PATH when STATE_FILE is on and this process runs the daemon loop (main()); no-op otherwise. Never raises — a status file must not disturb scrolling."""
+    if not STATE_FILE or not _state_writing:
+        return
+    try:
+        cfg_mtime_ns = os.stat(CONFIG_PATH).st_mtime_ns
+    except OSError:
+        cfg_mtime_ns = 0      # config currently missing — values are still valid, the daemon keeps running on them
+
+    def jval(v):
+        return list(v) if isinstance(v, tuple) else v       # DEVICE_MATCH pair -> [vendor, product]; None/bool/int/float pass through
+
+    payload = {
+        "version": 1,
+        "pid": os.getpid(),
+        "config_path": CONFIG_PATH,
+        "config_mtime_ns": cfg_mtime_ns,
+        "reload_ok": _state_reload_ok,
+        "reload_error": _state_reload_error,
+        "values": {k: jval(globals()[k]) for k in DAEMON_KEYS},
+        "devices_grabbed": [
+            {"path": path, "name": d.name,
+             "vendor": f"0x{d.info.vendor:x}", "product": f"0x{d.info.product:x}"}
+            for path, d in sorted(devices.items())
+        ],
+        "active": held,      # a scroll session is engaged (held)
+        "virtual_device_name": VIRTUAL_NAME,
+        "live": _state_live,
+    }
+    tmp = os.path.join(os.path.dirname(STATE_PATH), f".{os.path.basename(STATE_PATH)}.tmp-{os.getpid()}")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.chmod(tmp, 0o644)      # world-readable for the GUI user; root-owned under systemd
+        os.replace(tmp, STATE_PATH)
+    except OSError as exc:
+        global _state_write_warn_ts
+        now = time.monotonic()
+        if now - _state_write_warn_ts >= 30.0:   # e.g. /run/veloscroll missing on a manual (non-systemd) run
+            _state_write_warn_ts = now
+            _log(0, f"could not write state file {STATE_PATH}: {exc}")
+
+
+def _write_state():
+    """Lock-taking wrapper for call sites that do not hold `lock`."""
+    with lock:
+        _write_state_nolock()
+
 
 # --- latency debug state (LATENCY_LOG) ----------------------------------------
 # One shared dict: per-second windows plus per-hold timestamps. Every field is
@@ -555,7 +627,7 @@ def emit_scroll(hi, horizontal=False):
 
 
 def ticker():
-    global ticker_reset
+    global ticker_reset, _state_live, _state_live_ts
     rate = 0.0          # smoothed signed scroll rate, notches per second
     acc = 0.0
     next_t = time.monotonic()
@@ -592,6 +664,9 @@ def ticker():
 
             if not held:
                 rate = acc = 0.0
+                if STATE_LIVE and _state_live is not None:   # session just ended: drop the live metrics (one final write)
+                    _state_live = None
+                    _write_state_nolock()
                 continue
 
             if ticker_reset:                         # new hold / axis switch: drop any stale smoothed rate (D5)
@@ -615,7 +690,7 @@ def ticker():
                 target = 0.0
             else:
                 frac = min(1.0, (dist - dz) / (full - dz))
-                target = min_r * (max_r / min_r) ** (frac ** curve)
+                target = min_r + (max_r - min_r) * frac ** curve   # CURVE=1 is linear between MIN_RATE and MAX_RATE; <1 steep start, >1 gentle start (matches the documented semantics — the old exponential form was not linear at 1)
             side = 1 if off > 0 else -1
             vertical_axis = mode == "v" or VERTICAL_H    # VERTICAL_H: H-mode output follows the primary vertical convention instead of horizontal
             if vertical_axis:
@@ -626,6 +701,13 @@ def ticker():
                 target = -target
 
             rate += (target - rate) * smooth
+            if STATE_LIVE:                                   # publish the live position for GUIs (~20 Hz while held; off = zero overhead)
+                now_l = time.monotonic()
+                if now_l - _state_live_ts >= LIVE_INTERVAL:
+                    _state_live = {"mode": mode, "offset_counts": off,
+                                   "distance_in": dist / DPI, "rate_nps": rate}
+                    _state_live_ts = now_l
+                    _write_state_nolock()
             if abs(rate) < 0.05 and target == 0.0:
                 rate = acc = 0.0
                 continue
@@ -677,124 +759,158 @@ def run(path):
     sync_virtual_device(dev.info)
     with lock:
         devices[path] = dev
+        _write_state_nolock()          # publish the newly grabbed device for GUIs
+    stop_ev = threading.Event()
+    with lock:
+        _read_stop[path] = stop_ev     # the supervisor signals release here — a flag is honored within one select timeout, where close() from another thread would not wake a blocked read (the old stale-grab bug)
     _log(1, f"grabbed {path} {dev.name}")
+    fd_dead = False
     try:
-        for ev in dev.read_loop():
-            now_mono = time.monotonic() if LATENCY_LOG else 0.0   # arrival ts captured at event receipt
-            with lock:
-                if LATENCY_LOG:
-                    _lat_input_sample(ev, now_mono)
+        while not stop_ev.is_set():
+            if not fd_dead:
+                try:
+                    ready, _, _ = select.select([dev.fileno()], [], [], 0.2)   # short timeout so an idle device's release is honored within ~0.2 s (a blocked read cannot be interrupted by close())
+                except (OSError, ValueError):
+                    fd_dead = True         # fd closed/vanished under us — drain anything already queued below, then exit to the finally's cleanup
+                    continue
+                if not ready:
+                    continue
+                try:
+                    _mode = os.fstat(dev.fileno()).st_mode
+                except OSError:
+                    fd_dead = True                     # closed under us (EBADF) — drain what is queued below, then exit to cleanup
+                    continue
+                if not (_fstat.S_ISFIFO(_mode) or _fstat.S_ISCHR(_mode)):
+                    fd_dead = True                     # the fd number was reused by another open() after close — reading it would consume unrelated data; treat as dead
+                    continue
+            while True:                                  # drain everything pending at this wakeup (non-blocking); a single wake can cover several queued events
+                ev = dev.read_one()
+                if ev is None:
+                    break
+                now_mono = time.monotonic() if LATENCY_LOG else 0.0   # arrival ts captured at event receipt
+                with lock:
+                    if LATENCY_LOG:
+                        _lat_input_sample(ev, now_mono)
 
-                if ev.type == e.EV_KEY and (ev.code == SCROLL_BTN or ev.code == SCROLL_BTN_H):
-                    is_h = ev.code == SCROLL_BTN_H
-                    tog = TOGGLE_SCROLL                          # effective scroll mode for this axis; unset TOGGLE_SCROLL_H falls back to the vertical value
-                    if is_h and TOGGLE_SCROLL_H is not None:
-                        tog = TOGGLE_SCROLL_H
-                    if tog:                                      # toggle (latched) mode: release edges are ignored, press edges flip engagement on/off
-                        engaged = held_h if is_h else held_v
-                        if ev.value == 1 and not engaged:        # tap -> engage: exactly like a hold-mode press
+                    if ev.type == e.EV_KEY and (ev.code == SCROLL_BTN or ev.code == SCROLL_BTN_H):
+                        is_h = ev.code == SCROLL_BTN_H
+                        held_before = held                           # a session engage/disengage must publish `active` for GUIs
+                        tog = TOGGLE_SCROLL                          # effective scroll mode for this axis; unset TOGGLE_SCROLL_H falls back to the vertical value
+                        if is_h and TOGGLE_SCROLL_H is not None:
+                            tog = TOGGLE_SCROLL_H
+                        if tog:                                      # toggle (latched) mode: release edges are ignored, press edges flip engagement on/off
+                            engaged = held_h if is_h else held_v
+                            if ev.value == 1 and not engaged:        # tap -> engage: exactly like a hold-mode press
+                                if is_h:
+                                    held_h = True
+                                else:
+                                    held_v = True
+                                held = True
+                                mode = "h" if is_h else "v"
+                                offset = h_offset = 0                # fresh accumulators for the activated session
+                                acc_notch = 0                        # never carry partial notches across axes (D5)
+                                ticker_reset = True                  # drop any stale smoothed rate from the previous axis (D5)
+                                if LATENCY_LOG:
+                                    _lat_reset_hold()
+                                    _lat["press_ts"] = now_mono
+                            elif ev.value == 1 and engaged:          # tap again -> disengage; release edges are no-ops while latched
+                                if is_h: held_h = False
+                                else:    held_v = False
+                                if not (held_v or held_h):
+                                    held = False
+                                    if LATENCY_LOG:
+                                        _lat["press_ts"] = None      # same as today's plain release
+                                else:                                # other axis still engaged -> reactivate it fresh (D3)
+                                    mode = "v" if held_v else "h"
+                                    offset = h_offset = 0
+                                    acc_notch = 0
+                                    ticker_reset = True
+                                    if LATENCY_LOG:
+                                        _lat_reset_hold()
+                                        _lat["press_ts"] = None      # fallback session reports crossing->emit only (D8)
+                            if held != held_before:                  # toggle tap engaged/disengaged the session -> publish active status
+                                _write_state_nolock()
+                            continue                                 # toggle mode consumes every edge of this button (repeats included)
+                        if ev.value == 1:                                # press -> this button becomes the active axis (LIFO)
                             if is_h:
                                 held_h = True
                             else:
                                 held_v = True
                             held = True
                             mode = "h" if is_h else "v"
-                            offset = h_offset = 0                # fresh accumulators for the activated session
-                            acc_notch = 0                        # never carry partial notches across axes (D5)
-                            ticker_reset = True                  # drop any stale smoothed rate from the previous axis (D5)
+                            offset = h_offset = 0                        # fresh accumulators for the activated session
+                            acc_notch = 0                                # never carry partial notches across axes (D5)
+                            ticker_reset = True                          # drop any stale smoothed rate from the previous axis (D5)
                             if LATENCY_LOG:
                                 _lat_reset_hold()
                                 _lat["press_ts"] = now_mono
-                        elif ev.value == 1 and engaged:          # tap again -> disengage; release edges are no-ops while latched
+                        elif ev.value == 0:                              # release
                             if is_h: held_h = False
                             else:    held_v = False
                             if not (held_v or held_h):
                                 held = False
                                 if LATENCY_LOG:
-                                    _lat["press_ts"] = None      # same as today's plain release
-                            else:                                # other axis still engaged -> reactivate it fresh (D3)
+                                    _lat["press_ts"] = None              # same as today's plain release
+                            else:                                        # other button still down -> reactivate it fresh (D3)
                                 mode = "v" if held_v else "h"
                                 offset = h_offset = 0
                                 acc_notch = 0
                                 ticker_reset = True
                                 if LATENCY_LOG:
                                     _lat_reset_hold()
-                                    _lat["press_ts"] = None      # fallback session reports crossing->emit only (D8)
-                        continue                                 # toggle mode consumes every edge of this button (repeats included)
-                    if ev.value == 1:                                # press -> this button becomes the active axis (LIFO)
-                        if is_h:
-                            held_h = True
-                        else:
-                            held_v = True
-                        held = True
-                        mode = "h" if is_h else "v"
-                        offset = h_offset = 0                        # fresh accumulators for the activated session
-                        acc_notch = 0                                # never carry partial notches across axes (D5)
-                        ticker_reset = True                          # drop any stale smoothed rate from the previous axis (D5)
-                        if LATENCY_LOG:
-                            _lat_reset_hold()
-                            _lat["press_ts"] = now_mono
-                    elif ev.value == 0:                              # release
-                        if is_h: held_h = False
-                        else:    held_v = False
-                        if not (held_v or held_h):
-                            held = False
-                            if LATENCY_LOG:
-                                _lat["press_ts"] = None              # same as today's plain release
-                        else:                                        # other button still down -> reactivate it fresh (D3)
-                            mode = "v" if held_v else "h"
-                            offset = h_offset = 0
-                            acc_notch = 0
-                            ticker_reset = True
-                            if LATENCY_LOG:
-                                _lat_reset_hold()
-                                _lat["press_ts"] = None              # fallback session reports crossing->emit only (D8)
-                    continue
+                                    _lat["press_ts"] = None              # fallback session reports crossing->emit only (D8)
+                        if held != held_before:                          # press/release engaged/disengaged the session -> publish active status
+                            _write_state_nolock()
+                        continue
 
-                # [disabled-btn] swallows the disabled button (it never reaches the OS).
-                if ev.type == e.EV_KEY and ev.code == DISABLED_BTN:
-                    continue
+                    # [disabled-btn] swallows the disabled button (it never reaches the OS).
+                    if ev.type == e.EV_KEY and ev.code == DISABLED_BTN:
+                        continue
 
-                # BTN_LEFT edge tracking for drag-select; placed after the blocks above so a consumed/disabled
-                # left button can never arm it. The event is NOT consumed — press/release/repeat still pass through below,
-                # so clicks behave exactly as before. A release mid-session resumes from a fresh origin (no rate jump).
-                if ev.type == e.EV_KEY and ev.code == e.BTN_LEFT:
-                    if ev.value == 1:
-                        btn_left_down = True
-                    elif ev.value == 0:
-                        btn_left_down = False
-                        if held:                     # fresh origin so the next movement scrolls from zero again
-                            offset = h_offset = 0
-                            acc_notch = 0
-                            ticker_reset = True
+                    # BTN_LEFT edge tracking for drag-select; placed after the blocks above so a consumed/disabled
+                    # left button can never arm it. The event is NOT consumed — press/release/repeat still pass through below,
+                    # so clicks behave exactly as before. A release mid-session resumes from a fresh origin (no rate jump).
+                    if ev.type == e.EV_KEY and ev.code == e.BTN_LEFT:
+                        if ev.value == 1:
+                            btn_left_down = True
+                        elif ev.value == 0:
+                            btn_left_down = False
+                            if held:                     # fresh origin so the next movement scrolls from zero again
+                                offset = h_offset = 0
+                                acc_notch = 0
+                                ticker_reset = True
 
-                if held and not btn_left_down and ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
-                    if mode == "v" and ev.code == e.REL_Y:
-                        offset = max(-FULL, min(FULL, offset + ev.value))
-                        if LATENCY_LOG and _lat["cross_ts"] is None and abs(offset) > DEADZONE:
-                            _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
-                    elif mode == "h" and ev.code == (e.REL_Y if VERTICAL_H else e.REL_X):   # VERTICAL_H: H-mode accumulates up/down movement instead of left/right
-                        h_offset = max(-FULL_H, min(FULL_H, h_offset + ev.value))
-                        if LATENCY_LOG and _lat["cross_ts"] is None and abs(h_offset) > DEADZONE_H:
-                            _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
-                    continue
+                    if held and not btn_left_down and ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
+                        if mode == "v" and ev.code == e.REL_Y:
+                            offset = max(-FULL, min(FULL, offset + ev.value))
+                            if LATENCY_LOG and _lat["cross_ts"] is None and abs(offset) > DEADZONE:
+                                _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
+                        elif mode == "h" and ev.code == (e.REL_Y if VERTICAL_H else e.REL_X):   # VERTICAL_H: H-mode accumulates up/down movement instead of left/right
+                            h_offset = max(-FULL_H, min(FULL_H, h_offset + ev.value))
+                            if LATENCY_LOG and _lat["cross_ts"] is None and abs(h_offset) > DEADZONE_H:
+                                _lat["cross_ts"] = now_mono          # first push past the deadzone this hold
+                        continue
 
-                # wheel while held is swallowed — except in drag mode (left down), where it passes through like an unmediated mouse
-                if held and not btn_left_down and ev.type == e.EV_REL and ev.code in (
-                        e.REL_WHEEL, e.REL_WHEEL_HI_RES, e.REL_HWHEEL, e.REL_HWHEEL_HI_RES):
-                    continue
+                    # wheel while held is swallowed — except in drag mode (left down), where it passes through like an unmediated mouse
+                    if held and not btn_left_down and ev.type == e.EV_REL and ev.code in (
+                            e.REL_WHEEL, e.REL_WHEEL_HI_RES, e.REL_HWHEEL, e.REL_HWHEEL_HI_RES):
+                        continue
 
-                try:
-                    ui.write_event(ev)
-                except Exception:
-                    pass
+                    try:
+                        ui.write_event(ev)
+                    except Exception:
+                        pass
+            if fd_dead:
+                break                  # queue drained after the fd died — nothing more can arrive; exit to cleanup
     except Exception as exc:
         _log(0, f"lost device {path}: {exc}")
     finally:
         with lock:
             devices.pop(path, None)
+            _read_stop.pop(path, None)
+            _write_state_nolock()      # lost/released device: publish the shrunken grab set for GUIs
         try:
-            dev.close()
+            dev.close()                # closing our own fd (from this thread) releases EVIOCGRAB promptly — even when the device is idle
         except OSError:
             pass
 
@@ -836,7 +952,7 @@ def find_matches():
 
 def _maybe_reload_config():
     """Once per supervisor iteration: re-read config.ini if its mtime/size changed."""
-    global _cfg_stat
+    global _cfg_stat, _state_reload_ok, _state_reload_error
     try:
         st = os.stat(CONFIG_PATH)
     except OSError:
@@ -852,11 +968,16 @@ def _maybe_reload_config():
         values = load_config()
     except ConfigError as exc:
         _log(2, f"config reload rejected, keeping current values: {exc}")
+        _state_reload_ok, _state_reload_error = False, str(exc)   # publish the rejection for GUIs (values unchanged)
+        _write_state()
         return
     errors = check_config(values)
     if errors:
         _log(2, "config reload rejected, keeping current values: " + "; ".join(errors))
+        _state_reload_ok, _state_reload_error = False, "; ".join(errors)   # publish the rejection for GUIs (values unchanged)
+        _write_state()
         return
+    _state_reload_ok, _state_reload_error = True, None      # accepted reload; apply_values publishes the new state below
     changed = apply_values(values)
     if changed:
         _log(2, "config reloaded: " + ", ".join(f"{k} {o!r}->{n!r}" for k, o, n in changed))
@@ -879,14 +1000,20 @@ def supervisor():
             for path in list(active):
                 if not active[path].is_alive():
                     del active[path]
-                elif scan_ok and path not in matches:   # config no longer selects this mouse -> release it (read_loop raises, thread exits)
-                    d = devices.get(path)
-                    if d is not None:
-                        try:
-                            d.close()
-                        except OSError:
-                            pass
-                        _log(3, f"device released (no longer selected): {path}")
+                    _release_ts.pop(path, None)
+                elif scan_ok and path not in matches:   # config no longer selects this mouse -> stop its reader (prompt grab release even when the device is idle)
+                    ev_stop = _read_stop.get(path)
+                    if ev_stop is not None and not ev_stop.is_set():
+                        ev_stop.set()                   # the reader exits within ~0.2 s and closes its own fd — EVIOCGRAB drops promptly, no blocked-read race
+                        _release_ts[path] = time.monotonic()
+                    elif path in _release_ts and time.monotonic() - _release_ts[path] > 10.0:   # backstop for a wedged reader that ignored the flag
+                        d = devices.get(path)
+                        if d is not None:
+                            try:
+                                d.close()
+                            except OSError:
+                                pass
+                    _log(3, f"device released (no longer selected): {path}")
             if scan_ok:                                  # a failed scan must never start or stop threads
                 for path in matches:
                     t = active.get(path)
@@ -898,6 +1025,9 @@ def supervisor():
 
 
 def main():
+    global _state_writing
+    _state_writing = True        # this process runs the daemon loop: state writes are allowed from here on
+    _write_state()               # startup document (effective values, reload health) before any device is grabbed; no-op while STATE_FILE is off
     threading.Thread(target=ticker, daemon=True).start()
     threading.Thread(target=supervisor, daemon=True).start()
     threading.Event().wait()

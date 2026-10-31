@@ -88,3 +88,11 @@ MAX_BACKUPS = 5
 ; How many .bak-<timestamp> backups the preset helper and seed script keep per file family:
 ; -1 = unlimited, N >= 1 = keep only the newest N, 0 = disable backups entirely (no backup files are written).
 ; Hot-reloaded like every other key; each helper run reads the current value.
+
+; --- gui -----------------------------------------------------------------------
+
+STATE_FILE = False
+; True/False: when true, the daemon writes /run/veloscroll/state — a JSON status snapshot of the effective
+; values, grabbed devices and scroll activity that GUI frontends read to show live state. Off by default
+; (zero overhead without a GUI). Per-machine operational state like MAX_BACKUPS: never part of presets.
+; The shipped veloscroll.service creates /run/veloscroll for this (RuntimeDirectory=veloscroll).

@@ -112,7 +112,7 @@ def _target_rate(vs, axis, dist):
     if dist <= dz:
         return 0.0
     frac = min(1.0, (dist - dz) / (full - dz))
-    return min_r * (max_r / min_r) ** (frac ** curve)
+    return min_r + (max_r - min_r) * frac ** curve   # CURVE=1 linear between MIN_RATE and MAX_RATE; <1 steep start, >1 gentle start
 
 
 def _begin_hold(axis):

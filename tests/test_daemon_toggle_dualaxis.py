@@ -95,7 +95,7 @@ def test_toggle_h_explicit_override_leaves_v_axis_in_hold_mode(sim):
 
 
 def test_d3_releasing_h_while_v_still_held_reactivates_v_fresh(sim):
-    with sim(HOLD_DUAL_INI) as s:                       # both axes hold-mode; TICK=20ms widens the observation window
+    with sim(HOLD_DUAL_INI) as s:                       # both axes hold-mode; TICK=20ms keeps emission slow for the sanity sleeps above
         push(s.dev, e.EV_KEY, e.BTN_SIDE, 1)                 # v active (LIFO bottom of stack)
         wait_until(lambda: _state(s.vs)["held_v"])
         push(s.dev, e.EV_REL, e.REL_Y, 100)                            # v accumulates and emits...
@@ -106,14 +106,10 @@ def test_d3_releasing_h_while_v_still_held_reactivates_v_fresh(sim):
         push(s.dev, e.EV_REL, e.REL_X, 50)                             # h emits its own notches -> acc_notch becomes non-trivial
         time.sleep(0.08)
 
-        def d3_reactivated():                                # D3 reactivates the v-axis fresh before the ticker consumes ticker_reset (20ms window)
-            st = _state(s.vs)
-            return (st["mode"] == "v" and not st["held_h"] and st["held_v"]
-                    and st["offset"] == 0 and st["h_offset"] == 0
-                    and st["acc_notch"] == 0 and st["ticker_reset"] is True)
-
         push(s.dev, e.EV_KEY, e.BTN_EXTRA, 0)                # release h while v is still held down...
-        wait_until(d3_reactivated)                           # ...v comes back with fresh accumulators
+        wait_until(lambda: _state(s.vs)["mode"] == "v" and not _state(s.vs)["held_h"])   # ...the v-axis comes back (stable state — robust to event-delivery latency; ticker_reset itself is consumed within one TICK and must not be observed transiently)
+        st = _state(s.vs)                                    # D3 reactivated it fresh: nothing carried over from the h session (same stable-state pattern as test_d5)
+        assert st["held_v"] is True and st["offset"] == 0 and st["h_offset"] == 0 and st["acc_notch"] == 0
 
         push(s.dev, e.EV_KEY, e.BTN_SIDE, 0)                 # release v -> fully idle
         _settled_idle(s)

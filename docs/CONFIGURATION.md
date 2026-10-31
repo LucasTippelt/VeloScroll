@@ -86,6 +86,12 @@ Used only while `SCROLL_BTN_H` is held.
 |-----|-----------------|-------------|
 | `MAX_BACKUPS` | How many `.bak-<timestamp>` backups the preset helper (`config.ini.bak-*`, `<name>.ini.bak-*`) and the seed script (`kcminputrc.bak-*`) keep per file family. `-1` = unlimited, `N ≥ 1` = keep only the newest N after each run that writes a backup, `0` = backups disabled entirely (no backup files are written; existing ones stay untouched). | Hot-reloaded like every other key — each helper run reads the current value. Set `0` if you don't want any `.bak-*` files at all (note: with `0`, `restore` no longer backs up the state it overwrites — see [Presets → Backups and recovery](PRESETS.md#backups-and-recovery)). |
 
+### GUI state file
+
+| Key | Meaning / units | Tuning hint |
+|-----|-----------------|-------------|
+| `STATE_FILE` | `True`/`False`. When true, the daemon writes `/run/veloscroll/state`: a JSON snapshot of all effective values, the grabbed devices and scroll activity (plus reload health) for GUI frontends to read. Off by default — zero overhead when no GUI runs. | Per-machine operational state like `MAX_BACKUPS` — never part of presets; set it directly in `config.ini`. The shipped unit creates `/run/veloscroll` (`RuntimeDirectory=veloscroll`). |
+
 ---
 
 ## Starting points and presets

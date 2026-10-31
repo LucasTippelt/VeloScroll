@@ -1,5 +1,5 @@
 [Unit]
-Description=Veloscroll v1.2 - velocity scrolling
+Description=Veloscroll v1.3 - velocity scrolling
 # stop crash-looping instead of restarting forever (5 failures / 60 s -> failed state)
 StartLimitIntervalSec=60
 StartLimitBurst=5
@@ -22,6 +22,12 @@ RestrictSUIDSGID=true
 LockPersonality=true
 # RestrictRealtime: daemon never sets realtime scheduling; 250 Hz ticker uses plain sleep
 RestrictRealtime=true
+# --- GUI state file (opt-in via STATE_FILE = True in config.ini) ---
+# /run/veloscroll/state is the JSON status snapshot for GUI frontends; RuntimeDirectory= creates it root-owned at unit start and removes it on stop, ReadWritePaths lifts exactly that dir out of ProtectSystem=strict
+RuntimeDirectory=veloscroll
+ReadWritePaths=/run/veloscroll
+# live scroll metrics in the state file's `live` field (GUI curve marker); the daemon only writes it while a session is held
+Environment=VELOSCROLL_STATE_LIVE=1
 # no networking at all
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 # Deliberately NOT set: PrivateDevices (needs /dev/input/* + /dev/uinput), CapabilityBoundingSet

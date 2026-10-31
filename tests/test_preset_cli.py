@@ -29,10 +29,13 @@ def preset_dir(cfg):
     return os.path.join(os.path.dirname(str(cfg)), "presets")
 
 
+NEVER_APPLIED = ("MAX_BACKUPS", "STATE_FILE")   # per-machine operational state — never captured by save
+
+
 def saved_key_count(cfg_text):
-    """save captures every daemon key except *_H keys that are unset in config.ini and the never-applied keys (MAX_BACKUPS)."""
+    """save captures every daemon key except *_H keys that are unset in config.ini and the never-applied keys (MAX_BACKUPS / STATE_FILE)."""
     present = re.findall(r"^(\w+)\s*=", cfg_text, re.M)
-    return len([k for k in v.DAEMON_KEYS if not (k.endswith("_H") and k not in present) and k != "MAX_BACKUPS"])
+    return len([k for k in v.DAEMON_KEYS if not (k.endswith("_H") and k not in present) and k not in NEVER_APPLIED])
 
 
 def test_save_creates_preset(tmp_path):
@@ -225,6 +228,44 @@ def test_max_backups_zero_writes_no_backups(tmp_path):
     new_text = cfg.read_text(encoding="utf-8")
     assert "CURVE = 0.9" in new_text and "MAX_BACKUPS = 0" in new_text   # the MAX_BACKUPS line is never touched by a load
     assert [f for f in os.listdir(os.path.dirname(str(cfg))) if BAK_RE.match(f) and f.startswith("config.ini.bak-")] == []
+
+
+# ---------------- STATE_FILE: per-machine operational state, same treatment as MAX_BACKUPS ----------------
+
+def test_save_never_captures_state_file(tmp_path):
+    cfg = write_cfg(tmp_path, "[veloscroll]\nNAME_MATCH = TestMouse\nCURVE = 0.7\nSTATE_FILE = true\n")
+    r = run(cfg, "save", "fast")
+    assert r.returncode == 0, r.stdout + r.stderr
+    body = open(os.path.join(preset_dir(cfg), "fast.ini"), encoding="utf-8").read()
+    assert not re.search(r"^STATE_FILE\s*=", body, re.M)   # no STATE_FILE assignment line — the GUI state-file switch is per-machine (the header comment may name it)
+
+
+def test_load_warns_and_ignores_state_file_in_preset(tmp_path):
+    cfg = write_cfg(tmp_path)             # no STATE_FILE line -> the code default (False) applies
+    d = preset_dir(cfg)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "fast.ini"), "w", encoding="utf-8") as f:      # hand-edited preset containing the key (even an invalid value must not fail the load — it is never applied or validated)
+        f.write("[veloscroll]\nCURVE = 0.9\nSTATE_FILE = banana\n")
+
+    r = run(cfg, "loadfeel", "fast")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "warning: STATE_FILE" in r.stderr and "ignored" in r.stderr      # warn-and-ignore line on every load command
+    new_text = cfg.read_text(encoding="utf-8")
+    assert "CURVE: 0.7 -> 0.9" in r.stdout and "CURVE = 0.9" in new_text     # the group itself applies normally
+    assert "STATE_FILE" not in new_text                                     # never rewritten into config.ini
+
+    r_all = run(cfg, "loadall", "fast")                                       # loadall warns too (and is a no-op here: CURVE already matches)
+    assert r_all.returncode == 0, r_all.stdout + r_all.stderr
+    assert "warning: STATE_FILE" in r_all.stderr
+
+
+def test_list_has_no_state_file_column(tmp_path):
+    cfg = write_cfg(tmp_path)
+    assert run(cfg, "save", "fast").returncode == 0
+    r = run(cfg, "list")
+    assert r.returncode == 0, r.stdout + r.stderr
+    header = next(l for l in r.stdout.splitlines() if l.startswith("preset"))
+    assert "STATE_FILE" not in header
 
 
 def test_usage_errors(tmp_path):
