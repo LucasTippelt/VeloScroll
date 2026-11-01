@@ -1,6 +1,6 @@
 # TUNING — feel presets (starting points)
 
-Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`), organized by use case. To apply a preset, set those four keys in `/etc/veloscroll/config.ini`; changes hot-reload within ~2 s — verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key). Or apply one of the five bundled presets (`presets.example/{balanced,fast,precise,cruising,snappy}.ini`, copy into `/etc/veloscroll/presets/`) in one command — e.g. `sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast` (see README "Presets"). The bundled presets carry the four feel keys only, so your distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) stay per-user — to apply them from a preset, save one yourself with `save` (it captures every daemon key) and run `loaddistances <name>`.
+Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`), organized by use case. To apply a preset, set those four keys in `/etc/veloscroll/config.ini`; changes hot-reload within ~2 s — verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key). Or apply one of the six bundled feel presets (`presets.example/{balanced,fast,precise,cruising,firefox,snappy}.ini`, copy into `/etc/veloscroll/presets/`) in one command — e.g. `sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast` (see README "Presets"). There is also one bundled *use-case* preset that configures both axes at once — [Two vertical modes](#two-vertical-modes). The bundled presets carry the four feel keys only, so your distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) stay per-user — to apply them from a preset, save one yourself with `save` (it captures every daemon key) and run `loaddistances <name>`.
 
 ## Presets
 
@@ -35,6 +35,22 @@ For deliberate movements with minimal lag: instant rate tracking (`OUT_SMOOTH` 1
 ### Firefox
 An approximation of the Firefox Autoscroll behavior, not 1 to 1 identical. Tune `DEADZONE_IN` and `FULL_IN` according to your mouse/desk setup.
 
+### Two vertical modes
+Two velocity scrolls on one mouse, both vertical: `SCROLL_BTN` at a slow-to-medium pace (the Cruising values) for reading, and `SCROLL_BTN_H` with `VERTICAL_H = true` at a medium-to-fast pace (the Fast values) for quick page jumps — e.g. main button vs thumb button.
+
+| Axis | MAX_RATE | MIN_RATE | CURVE | OUT_SMOOTH |
+| --- | --- | --- | --- | --- |
+| Vertical (`SCROLL_BTN`) | 90.0 | 3.0 | 1.2 | 0.65 |
+| H axis (`SCROLL_BTN_H`, `VERTICAL_H = true`) | 220.0 | 90.0 | 0.35 | 0.9 |
+
+Unlike the feel cases above, this is a dual-axis setup: it sets both ramps plus `VERTICAL_H` in one file ([`presets.example/two-vertical.ini`](../presets.example/two-vertical.ini)), so apply it with `loadall`, not `loadfeel`:
+
+```bash
+sudo python3 /opt/veloscroll/veloscroll_preset.py loadall two-vertical
+```
+
+The distance keys (`DEADZONE_IN`/`FULL_IN`) are deliberately not part of the preset — set them once per machine. To change the pace split, edit the eight feel values in the preset file or build your own with `save`. See [PRESETS.md](PRESETS.md#two-vertical-modes-use-case).
+
 ## Knob refresher
 
 - `MAX_RATE` — notches/second at FULL_IN and beyond: your top scrolling speed.
@@ -46,7 +62,7 @@ For the full key list with tuning hints, see [Customize and reload](CONFIGURATIO
 
 ## Horizontal scrolling (optional)
 
-The presets above tune the vertical ramp. If you use `SCROLL_BTN_H`, horizontal scrolling reuses those same values unless overridden by the per-axis variants: `DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`, `OUT_SMOOTH_H`. Each key falls back independently to its vertical counterpart when unset or set to `none` — e.g. setting only `DEADZONE_IN_H` changes just the horizontal deadzone while the rest of the ramp stays vertical. To give horizontal scrolling a different feel, pick one of the cases above and set that case's values as the corresponding `*_H` keys (all hot-reload like the vertical ones). With `VERTICAL_H = true`, these `_H` values instead drive a second *vertical* velocity scroll on SCROLL_BTN_H (up/down movement, REL_WHEEL output) rather than horizontal.
+The presets above tune the vertical ramp. If you use `SCROLL_BTN_H`, horizontal scrolling reuses those same values unless overridden by the per-axis variants: `DEADZONE_IN_H`, `FULL_IN_H`, `MIN_RATE_H`, `MAX_RATE_H`, `CURVE_H`, `OUT_SMOOTH_H`. Each key falls back independently to its vertical counterpart when unset or set to `none` — e.g. setting only `DEADZONE_IN_H` changes just the horizontal deadzone while the rest of the ramp stays vertical. To give horizontal scrolling a different feel, pick one of the cases above and set that case's values as the corresponding `*_H` keys (all hot-reload like the vertical ones). With `VERTICAL_H = true`, these `_H` values instead drive a second *vertical* velocity scroll on SCROLL_BTN_H (up/down movement, REL_WHEEL output) rather than horizontal — the bundled [`two-vertical`](../presets.example/two-vertical.ini) preset is exactly that use case (slow-to-medium vertical + medium-to-fast vertical), see [PRESETS.md](PRESETS.md#two-vertical-modes-use-case).
 
 ## A note on DPI
 

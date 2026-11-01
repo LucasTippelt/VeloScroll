@@ -31,7 +31,7 @@ Keys with an `_H` suffix are horizontal variants. Where noted, an unset or `none
 | `DEVICE_MATCH` | Recommended precise selector for a physical device; overrides `NAME_MATCH`. An exact USB ID pair (`0x46d, 0xc084`) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice. | Set it to your mouse's USB IDs: stable across reboots/ports, and lets per-device pointer rules apply automatically. See [Installation](INSTALL.md#installation), step 4. |
 | `DPI` | Your mouse's current DPI (counts/inch). Converts inches to raw counts. | Set it to your mouse's current DPI setting, not its maximum. |
 | `SCROLL_BTN` | Key code of the button to hold for scrolling (evdev name like `BTN_SIDE`, or decimal code, e.g. `275`). | Find it with `ListButtonPresses.py` (see [Installation](INSTALL.md#installation), step 5). Names are `evdev.ecodes.BTN_*`. |
-| `SCROLL_BTN_H` | Optional second button to hold for velocity scrolling. By default horizontal, driven by mouse X movement (emits `REL_HWHEEL`/`REL_HWHEEL_HI_RES`), using the vertical ramp unless overridden by the `_H` keys. With `VERTICAL_H = true` it emits vertical wheel events from up/down movement instead, at the same `_H`-key values. Evdev name or decimal code, or `none` to disable (default). | Must differ from `SCROLL_BTN` and `DISABLED_BTN`. `INVERT` flips both axes; see the hardware docs for direction notes. |
+| `SCROLL_BTN_H` | Optional second button to hold for velocity scrolling. By default horizontal, driven by mouse X movement (emits `REL_HWHEEL`/`REL_HWHEEL_HI_RES`), using the vertical ramp unless overridden by the `_H` keys. With `VERTICAL_H = true` it emits vertical wheel events from up/down movement instead, at the same `_H`-key values. Evdev name or decimal code, or `none` to disable (default). | Must differ from `SCROLL_BTN` and `DISABLED_BTN`. `INVERT` flips both axes (`INVERT_H` overrides it for the H axis); see the hardware docs for direction notes. |
 | `DISABLED_BTN` | Key code that is swallowed and does nothing, or `none` to disable this feature. | Set `none` if you don't want to disable a button. |
 
 ### Engagement mode
@@ -40,7 +40,8 @@ Keys with an `_H` suffix are horizontal variants. Where noted, an unset or `none
 |-----|-----------------|-------------|
 | `TOGGLE_SCROLL` | How `SCROLL_BTN` engages velocity scrolling. `False` (default) = hold-to-scroll, the button must stay pressed. `True` = tap to toggle on, tap again to toggle off (releasing does nothing while toggled). | While toggled on, movement is captured exactly as in hold mode (cursor stays put, same ramp from the tap point). Set `true` if you prefer a latched scroll mode over holding. |
 | `TOGGLE_SCROLL_H` | Horizontal variant of `TOGGLE_SCROLL` for `SCROLL_BTN_H`. Unset or `none` falls back to the vertical value. | Only if horizontal scrolling should use a different engagement mode than vertical (e.g. hold vertically, toggle horizontally). |
-| `VERTICAL_H` | `True`/`False`. With `true`, holding `SCROLL_BTN_H` becomes a second vertical velocity scroll instead of horizontal: mouse up/down movement drives `REL_WHEEL`/`REL_WHEEL_HI_RES` using the horizontal ramp values (`*_H` keys), and left/right movement does nothing. `false` (default) = horizontal behavior. | Only takes effect when `SCROLL_BTN_H` is set. `INVERT` flips it like every other axis. Flipping it live mid-hold ends any in-progress session. |
+| `VERTICAL_H` | `True`/`False`. With `true`, holding `SCROLL_BTN_H` becomes a second vertical velocity scroll instead of horizontal: mouse up/down movement drives `REL_WHEEL`/`REL_WHEEL_HI_RES` using the horizontal ramp values (`*_H` keys), and left/right movement does nothing. `false` (default) = horizontal behavior. | Only takes effect when `SCROLL_BTN_H` is set. Flipped by `INVERT_H` when set, else by `INVERT`, like every other axis. Flipping it live mid-hold ends any in-progress session. |
+| `LEFT_CLICK_RESET` | `True`/`False`. What releasing `BTN_LEFT` does while a scroll session is active (left-click/drag during a session): `true` (default) = fresh origin — the next movement scrolls from zero again; `false` = keep the current distance, so scrolling continues at its old speed. | Set `false` if you prefer to click mid-session without losing your scroll position/speed. Velocity output is paused while left is down either way. |
 
 ### Scroll ramp (vertical)
 
@@ -71,6 +72,7 @@ Used only while `SCROLL_BTN_H` is held.
 | Key | Meaning / units | Tuning hint |
 |-----|-----------------|-------------|
 | `INVERT` | `True`/`False`. Flip scroll direction. | Set `true` if your DE has "natural scrolling" enabled. |
+| `INVERT_H` | Horizontal variant of `INVERT` for `SCROLL_BTN_H`. Unset or `none` falls back to the vertical value. | Only if the H axis should be inverted differently than vertical (e.g. natural scrolling on one axis only). |
 | `TICK` | Ticker loop period in seconds; `0.004` s ≈ 250 Hz. How often the scroll rate is recomputed and hi-res events are emitted. | Not a feel setting (that's `OUT_SMOOTH`/`MAX_RATE`). Only lower it if scrolling still looks steppy, at the cost of more CPU. |
 
 ### Logging and debugging
@@ -91,6 +93,7 @@ Used only while `SCROLL_BTN_H` is held.
 | Key | Meaning / units | Tuning hint |
 |-----|-----------------|-------------|
 | `STATE_FILE` | `True`/`False`. When true, the daemon writes `/run/veloscroll/state`: a JSON snapshot of all effective values, the grabbed devices and scroll activity (plus reload health) for GUI frontends to read. Off by default — zero overhead when no GUI runs. | Per-machine operational state like `MAX_BACKUPS` — never part of presets; set it directly in `config.ini`. The shipped unit creates `/run/veloscroll` (`RuntimeDirectory=veloscroll`). |
+| `DISTANCE_FILE` | `True`/`False`. When true, the daemon writes a second file, `/run/veloscroll/distance`: a small JSON document with the live per-axis distances (vertical + horizontal) and the smoothed rate of the active scroll session. Rewritten on every ticker tick while a button is held (~250 Hz at `TICK = 0.004`) so GUI curve markers move smoothly; one final inactive document is written when a session ends, nothing while idle. Off by default — zero overhead without a consumer. | Per-machine operational state like `STATE_FILE` — never part of presets; set it directly in `config.ini`. The same unit creates `/run/veloscroll` for this file too. |
 
 ---
 

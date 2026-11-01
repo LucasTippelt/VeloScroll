@@ -33,6 +33,8 @@ def test_invalid_values(vs, name, patch, needle):
     ("max_backups unlimited ok", {"MAX_BACKUPS": -1}),
     ("max_backups disabled ok", {"MAX_BACKUPS": 0}),
     ("max_backups default ok", {"MAX_BACKUPS": 5}),
+    ("left_click_reset false ok", {"LEFT_CLICK_RESET": False}),
+    ("invert_h set ok", {"INVERT_H": True}),
 ])
 def test_boundary_values_valid(vs, name, patch):
     assert vs.check_config(_patch(vs, **patch)) == []
@@ -93,6 +95,8 @@ def test_button_identity(vs, name, patch, needle):
     ("toggle bool-as-int rejected", {"TOGGLE_SCROLL": 1}, "TOGGLE_SCROLL must be a boolean"),
     ("vertical_h bool-as-int rejected", {"VERTICAL_H": 0}, "VERTICAL_H must be a boolean"),
     ("toggle_h not bool", {"TOGGLE_SCROLL_H": 2}, "TOGGLE_SCROLL_H must be a boolean true/false or none"),
+    ("invert_h not bool", {"INVERT_H": 2}, "INVERT_H must be a boolean true/false or none"),
+    ("left_click_reset bool-as-int rejected", {"LEFT_CLICK_RESET": 1}, "LEFT_CLICK_RESET must be a boolean"),
     ("latency_log int rejected", {"LATENCY_LOG": 1}, "LATENCY_LOG must be a boolean"),
 ])
 def test_type_checks(vs, name, patch, needle):

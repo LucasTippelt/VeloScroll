@@ -2,11 +2,39 @@
 
 All notable changes to VeloScroll are documented in this file.
 
-## [v1.2]
+## [v1.3]
+
+This is the first release that includes the optional GUI at https://github.com/LucasTippelt/VeloScroll-GUI. As such, there are a bunch of minor changes to make integration seemless and some minor new features. As always, documentation has been updated.
 
 ### Added
 
 #### Core daemon (`veloscroll.py`)
+
+##### Features
+
+- `LEFT_CLICK_RESET`: what releasing `BTN_LEFT` does mid-session — `true` (default) keeps the old behavior, a fresh origin so the next movement scrolls from zero again; `false` keeps the current distance instead, so scrolling continues at its old speed after the click/drag ends. Velocity output is paused while left is down either way.
+- `INVERT_H`: horizontal variant of `INVERT` for `SCROLL_BTN_H`; unset or `none` falls back to the vertical value, like every other `_H` key. Lets you invert one axis only (e.g. natural scrolling on the main scroll but not the thumb button).
+- New preset example: "Two vertical modes": `SCROLL_BTN` for a slow-to-medium pace and `SCROLL_BTN_H` with `VERTICAL_H = true` for a medium-to-fast pace — e.g. fine reading on the main button, quick page jumps on the thumb button.
+
+##### GUI Integration
+
+- `STATE_FILE`: **False by default, nothing gets written**. When true, the daemon writes a state file, `/run/veloscroll/state`, every 2 seconds. This includes a bunch of things that the GUI then reads, for accurate reporting of all `the DAEMON_KEYS`. Per-machine operational state like `STATE_FILE`, never part of presets. 
+- `DISTANCE_FILE`: **False by default, nothing gets written**. when true, the daemon writes a second state file, `/run/veloscroll/distance` — a small JSON document with the live per-axis distances (vertical + horizontal) and the smoothed rate of the active scroll session. It is rewritten on every ticker tick while a button is held (~250 Hz at `TICK = 0.004`) so GUI curve markers move smoothly; one final inactive document goes out when a session ends and nothing is written while idle. Off by default (zero overhead without a consumer); per-machine operational state like `STATE_FILE`, never part of presets. I did A/B performance testing for this and there was no latency/performance impact on my hardware (Ryzen 7 7600X), honestly the writes *should* be cheap, so even on low-end hardware there *should* be only a small performance hit. **Still: it's set to false by default.** 
+
+#### Preset helper (`veloscroll_preset.py`)
+
+- `LEFT_CLICK_RESET` joins the scroll-mode flags: captured by `save` and applied by `loadscroll` / `loadall`.
+- New bundled use-case preset [`presets.example/two-vertical.ini`](presets.example/two-vertical.ini): two vertical velocity scrolls on one mouse — Cruising pace on `SCROLL_BTN`, Fast pace with `VERTICAL_H = true` on `SCROLL_BTN_H`; apply with `veloscroll_preset.py loadall two-vertical`.
+
+#### Documentation
+
+- Strongly recommended safety net: the README gains a dedicated section (and INSTALL.md a callout before enabling the service) advising users to set up KDE Connect — or any similar remote-input app — on their phone *before* using VeloScroll, so a misbehaving daemon can be worked around with a Wi-Fi mouse instead of a blind reboot.
+- Documented all the other changes.
+
+
+## [v1.2]
+
+### Added
 
 - Left-button drag-select during a scroll session: while `BTN_LEFT` is held (or latched) alongside an active session, mouse movement and physical wheel events pass through to the virtual cursor so normal click/drag works (e.g. text selection); velocity output pauses while it is down, and releasing left resumes the session from the current position as a fresh origin so there is no rate jump. Always on — no new config key; `BTN_LEFT` keeps its single role if assigned as SCROLL_BTN or DISABLED_BTN.
 

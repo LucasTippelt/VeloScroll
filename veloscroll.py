@@ -41,6 +41,7 @@ SCROLL_BTN_H = None                 # optional second hold button for horizontal
 TOGGLE_SCROLL = False               # how SCROLL_BTN engages velocity scrolling: False (default) = hold-to-scroll, the button must stay pressed; True = tap to toggle on, tap again to off
 TOGGLE_SCROLL_H = None              # horizontal variant of TOGGLE_SCROLL for SCROLL_BTN_H; None = fall back to the vertical value
 VERTICAL_H = False                  # True = while SCROLL_BTN_H is held, mouse up/down movement drives a second vertical velocity scroll using the horizontal ramp values (*_H keys); False (default) = left/right movement -> horizontal wheel as today
+LEFT_CLICK_RESET = True             # what releasing BTN_LEFT does mid-session: True (default) = fresh origin, the next movement scrolls from zero again; False = keep the current distance — scrolling continues at its old speed
 DPI = 1600                          # your mouse DPI
 DEADZONE_IN = 0.02                  # inches from the start point where nothing scrolls
 FULL_IN = 2.5                       # inches from the start at which MAX_RATE is reached
@@ -55,10 +56,12 @@ CURVE_H = None                      # horizontal variant of CURVE; None = fall b
 OUT_SMOOTH_H = None                 # horizontal variant of OUT_SMOOTH; None = fall back to the vertical value
 OUT_SMOOTH = 0.8                    # 0..1 how quickly the rate follows the target (lower = smoother, higher = more responsive)
 INVERT = False
+INVERT_H = None                     # horizontal variant of INVERT for SCROLL_BTN_H; None (default) = fall back to the vertical value, like every other _H key
 TICK = 0.004                        # ticker loop period in seconds (0.004 s ≈ 250 Hz): how often the scroll rate is recomputed and events are emitted; lower = smoother but more CPU — not a feel setting
 LOG_LEVEL = 2                       # what the daemon logs: 0=errors only, 1=+events, 2=+config detail, 3=+debug
 LATENCY_LOG = False                 # true: log a computed latency model plus one measured per-second summary line (independent of LOG_LEVEL)
 STATE_FILE = False                  # True: write /run/veloscroll/state (JSON status snapshot for GUI frontends); off by default — zero overhead without a GUI; per-machine operational state, never part of presets
+DISTANCE_FILE = False               # True: write /run/veloscroll/distance (live per-axis distance + rate) at ticker frequency while a scroll session is held — the high-rate feed behind the GUI's live curve markers; off by default — zero overhead without a consumer; per-machine operational state, never part of presets
 DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
 VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
 MAX_BACKUPS = 5                     # helper-script setting (veloscroll_preset.py + helpers/veloscroll_seed.py): max number of .bak-* backups to keep per file family (config.ini.bak-*, preset <name>.ini.bak-*, kcminputrc.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup, 0 = backups disabled entirely (no .bak-* file is written by any helper run)
@@ -72,11 +75,11 @@ MAX_BACKUPS = 5                     # helper-script setting (veloscroll_preset.p
 
 CONFIG_PATH = os.environ.get("VELOSCROLL_CONFIG", "/etc/veloscroll/config.ini")  # env override for tests / per-user setups
 DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCROLL_BTN_H",
-               "TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H",
-               "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
-                "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
-                  "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG",
-                  "MAX_BACKUPS", "STATE_FILE")
+                "TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H", "LEFT_CLICK_RESET",
+                "DPI", "DEADZONE_IN", "FULL_IN", "MAX_RATE", "MIN_RATE",
+                 "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
+                   "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "INVERT_H", "TICK", "LOG_LEVEL", "LATENCY_LOG",
+                   "MAX_BACKUPS", "STATE_FILE", "DISTANCE_FILE")
 _DEFAULTS = {k: globals()[k] for k in DAEMON_KEYS}   # the code defaults, captured before any .ini overlay; a key absent from the file always falls back to these
 
 
@@ -114,13 +117,22 @@ def _parse_ini_value(key, raw):
             return int(raw)                   # decimal code, e.g. 275
         except ValueError:
             raise ConfigError(f"{key} in {CONFIG_PATH}: expected an evdev button name (e.g. BTN_SIDE) or a decimal code (got {raw!r})")
-    if key in ("INVERT", "LATENCY_LOG", "TOGGLE_SCROLL", "VERTICAL_H", "STATE_FILE"):
+    if key in ("INVERT", "LATENCY_LOG", "TOGGLE_SCROLL", "VERTICAL_H", "LEFT_CLICK_RESET", "STATE_FILE", "DISTANCE_FILE"):
         low = raw.lower()
         if low in ("true", "yes", "on", "1"):
             return True
         if low in ("false", "no", "off", "0"):
             return False
         raise ConfigError(f"{key} in {CONFIG_PATH}: expected a boolean true/false/yes/no/on/off (got {raw!r})")
+    if key == "INVERT_H":
+        if raw.lower() == "none":
+            return None                   # unset -> fall back to INVERT at runtime
+        low = raw.lower()
+        if low in ("true", "yes", "on", "1"):
+            return True
+        if low in ("false", "no", "off", "0"):
+            return False
+        raise ConfigError(f"{key} in {CONFIG_PATH}: expected a boolean true/false/yes/no/on/off or none (got {raw!r})")
     if key == "TOGGLE_SCROLL_H":
         if raw.lower() == "none":
             return None                   # unset -> fall back to the vertical value at runtime
@@ -160,7 +172,7 @@ def _parse_ini_value(key, raw):
 
 
 def load_config():
-    """All 27 daemon keys: the code defaults overlaid with non-empty config.ini values.
+    """All 30 daemon keys: the code defaults overlaid with non-empty config.ini values.
 
     Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
     Bad syntax -> all errors collected and raised as one ConfigError."""
@@ -266,6 +278,10 @@ def check_config(v):
         errors.append(f"TOGGLE_SCROLL_H must be a boolean true/false or none (got {v['TOGGLE_SCROLL_H']!r})")
     if not isinstance(v["VERTICAL_H"], bool):
         errors.append(f"VERTICAL_H must be a boolean true/false (got {v['VERTICAL_H']!r})")
+    if not isinstance(v["LEFT_CLICK_RESET"], bool):
+        errors.append(f"LEFT_CLICK_RESET must be a boolean true/false (got {v['LEFT_CLICK_RESET']!r})")
+    if v["INVERT_H"] is not None and not isinstance(v["INVERT_H"], bool):
+        errors.append(f"INVERT_H must be a boolean true/false or none (got {v['INVERT_H']!r})")
     dm = v["DEVICE_MATCH"]
     valid_dm = (dm is None
                 or (isinstance(dm, tuple) and len(dm) == 2 and all(is_int(x) for x in dm))
@@ -282,6 +298,8 @@ def check_config(v):
         errors.append(f"LATENCY_LOG must be a boolean true/false (got {v['LATENCY_LOG']!r})")
     if not isinstance(v["STATE_FILE"], bool):
         errors.append(f"STATE_FILE must be a boolean true/false (got {v['STATE_FILE']!r})")
+    if not isinstance(v["DISTANCE_FILE"], bool):
+        errors.append(f"DISTANCE_FILE must be a boolean true/false (got {v['DISTANCE_FILE']!r})")
     if not (is_int(v["MAX_BACKUPS"]) and v["MAX_BACKUPS"] >= -1):
         errors.append(f"MAX_BACKUPS must be an integer >= -1 — use -1 (unlimited), 0 (backups disabled) or a positive number of backups to keep (got {v['MAX_BACKUPS']!r})")
     return errors
@@ -293,7 +311,7 @@ def _log(level, msg):
 
 
 def apply_values(v):
-    """Assign all 27 keys under the lock; returns [(key, old, new)] for changed keys."""
+    """Assign all 30 keys under the lock; returns [(key, old, new)] for changed keys."""
     global DEADZONE, FULL, DEADZONE_H, FULL_H, held, held_v, held_h, offset, h_offset, acc_notch, ticker_reset, btn_left_down, _cfg_stat
     changed = []
     with lock:
@@ -336,6 +354,7 @@ def apply_values(v):
             except OSError:
                 pass
         _write_state_nolock()          # publish after every accepted apply: startup, accepted reloads, and the moment STATE_FILE flips on
+        _write_distance_nolock()       # same for the distance file: an idle document appears the moment DISTANCE_FILE flips on (or at startup with it already on)
     return changed
 
 
@@ -368,14 +387,14 @@ _cfg_load_info = None   # (CONFIG_PATH, override_count) after a load_config() th
 # Written atomically (tmp + os.replace) to STATE_PATH as 0644 root under systemd (RuntimeDirectory=veloscroll).
 # The writer takes no lock internally: call sites holding `lock` use _write_state_nolock(); all others _write_state().
 STATE_PATH = os.environ.get("VELOSCROLL_STATE_FILE", "/run/veloscroll/state")   # env override for tests / per-user setups
+DISTANCE_PATH = os.environ.get("VELOSCROLL_DISTANCE_FILE", "/run/veloscroll/distance")   # env override for tests / per-user setups
 _state_writing = False        # flipped True by main(): only a process running the actual daemon loop publishes state — helper scripts that merely import veloscroll must stay side-effect-free (no /run writes, no stdout noise)
 _state_reload_ok = True       # last config load/reload succeeded; a rejected reload flips it to False until the next accepted one
 _state_reload_error = None    # error string of the last rejected reload; None while ok
-STATE_LIVE = os.environ.get("VELOSCROLL_STATE_LIVE") == "1"   # stretch: while a scroll session is held, publish per-tick live metrics to the `live` field below (the GUI's live curve marker reads it); off by default — zero overhead without a consumer
-_state_live = None            # live metrics of the current hold (mode/offset/distance/rate); null when idle or STATE_LIVE is off
-_state_live_ts = 0.0          # monotonic ts of the last live-state write (throttled to ~20 Hz — GUIs poll at a few Hz)
-LIVE_INTERVAL = 0.05          # minimum seconds between live-state writes while held
+_smooth_rate = 0.0            # ticker's smoothed signed scroll rate (notches/s); published in the distance document, touched only under `lock`
+_dist_held_published = False  # ticker: a held session is currently publishing distance docs — one final idle doc goes out on release
 _state_write_warn_ts = 0.0    # monotonic ts of the last state-write failure log (rate-limited: status output must not spam)
+_distance_write_warn_ts = 0.0  # same, for the distance file
 
 
 def _write_state_nolock():
@@ -405,7 +424,6 @@ def _write_state_nolock():
         ],
         "active": held,      # a scroll session is engaged (held)
         "virtual_device_name": VIRTUAL_NAME,
-        "live": _state_live,
     }
     tmp = os.path.join(os.path.dirname(STATE_PATH), f".{os.path.basename(STATE_PATH)}.tmp-{os.getpid()}")
     try:
@@ -425,6 +443,47 @@ def _write_state():
     """Lock-taking wrapper for call sites that do not hold `lock`."""
     with lock:
         _write_state_nolock()
+
+
+# --- distance file (DISTANCE_FILE = True): high-rate live position feed -------------------
+# A second, small JSON document at DISTANCE_PATH carrying the current per-axis distances and the
+# smoothed rate of the active session. The ticker rewrites it on EVERY tick while a scroll session
+# is held (TICK ≈ 4 ms -> up to ~250 Hz) so the GUI's live curve markers move smoothly — the state
+# file above stays event-driven and keeps its slow, full-document contract. One final idle document
+# (active=false, mode=null) goes out when the session ends; while idle nothing is written at all.
+
+def _write_distance_nolock():
+    """Write DISTANCE_PATH when DISTANCE_FILE is on and this process runs the daemon loop (main()); no-op otherwise. Never raises — a status file must not disturb scrolling."""
+    if not DISTANCE_FILE or not _state_writing:
+        return
+    payload = {
+        "version": 1,
+        "pid": os.getpid(),
+        "active": held,                       # a scroll session is engaged (held)
+        "mode": mode if held else None,       # active axis while held ("v"/"h"); null when idle
+        "distance_in_v": abs(offset) / DPI,   # vertical distance from the press point (inches); 0.0 when not accumulated
+        "distance_in_h": abs(h_offset) / DPI,  # horizontal distance from the press point (inches)
+        "rate_nps": _smooth_rate,             # smoothed rate of the active session (signed); 0.0 while idle
+        "ts": time.time(),                    # wall-clock write ts — consumers can drop stale docs (e.g. daemon died mid-hold)
+    }
+    tmp = os.path.join(os.path.dirname(DISTANCE_PATH), f".{os.path.basename(DISTANCE_PATH)}.tmp-{os.getpid()}")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.chmod(tmp, 0o644)      # world-readable for the GUI user; root-owned under systemd
+        os.replace(tmp, DISTANCE_PATH)
+    except OSError as exc:
+        global _distance_write_warn_ts
+        now = time.monotonic()
+        if now - _distance_write_warn_ts >= 30.0:   # e.g. /run/veloscroll missing on a manual (non-systemd) run
+            _distance_write_warn_ts = now
+            _log(0, f"could not write distance file {DISTANCE_PATH}: {exc}")
+
+
+def _write_distance():
+    """Lock-taking wrapper for call sites that do not hold `lock`."""
+    with lock:
+        _write_distance_nolock()
 
 
 # --- latency debug state (LATENCY_LOG) ----------------------------------------
@@ -627,9 +686,8 @@ def emit_scroll(hi, horizontal=False):
 
 
 def ticker():
-    global ticker_reset, _state_live, _state_live_ts
-    rate = 0.0          # smoothed signed scroll rate, notches per second
-    acc = 0.0
+    global ticker_reset, _smooth_rate, _dist_held_published
+    acc = 0.0           # fractional-notch accumulator (local: only the ticker consumes it)
     next_t = time.monotonic()
     prev_iter = None        # when the previous tick actually ran (monotonic); latency stats only
     last_report = next_t    # last per-second latency summary; latency stats only
@@ -663,14 +721,16 @@ def ticker():
                     _log(0, line)                             # always-print tier: independent of LOG_LEVEL
 
             if not held:
-                rate = acc = 0.0
-                if STATE_LIVE and _state_live is not None:   # session just ended: drop the live metrics (one final write)
-                    _state_live = None
-                    _write_state_nolock()
+                _smooth_rate = 0.0
+                acc = 0.0
+                if DISTANCE_FILE and _dist_held_published:   # session just ended: one final idle document (the GUI clears its markers from `active`)
+                    _dist_held_published = False
+                    _write_distance_nolock()
                 continue
 
             if ticker_reset:                         # new hold / axis switch: drop any stale smoothed rate (D5)
-                rate = acc = 0.0
+                _smooth_rate = 0.0
+                acc = 0.0
                 ticker_reset = False
             off = h_offset if mode == "h" else offset
             dist = abs(off)
@@ -697,22 +757,20 @@ def ticker():
                 target *= -side                          # mouse up = scroll up — existing convention, untouched
             else:
                 target *= side                           # hand right -> positive REL_HWHEEL ("scroll right") — D4, hardware-verify
-            if INVERT:
+            inv = INVERT_H if mode == "h" and INVERT_H is not None else INVERT   # unset INVERT_H falls back to the vertical value, like every other _H key
+            if inv:
                 target = -target
 
-            rate += (target - rate) * smooth
-            if STATE_LIVE:                                   # publish the live position for GUIs (~20 Hz while held; off = zero overhead)
-                now_l = time.monotonic()
-                if now_l - _state_live_ts >= LIVE_INTERVAL:
-                    _state_live = {"mode": mode, "offset_counts": off,
-                                   "distance_in": dist / DPI, "rate_nps": rate}
-                    _state_live_ts = now_l
-                    _write_state_nolock()
-            if abs(rate) < 0.05 and target == 0.0:
-                rate = acc = 0.0
+            _smooth_rate += (target - _smooth_rate) * smooth
+            if DISTANCE_FILE:                               # publish the live position for GUIs on every tick (~TICK Hz while held; off = zero overhead)
+                _dist_held_published = True
+                _write_distance_nolock()
+            if abs(_smooth_rate) < 0.05 and target == 0.0:
+                _smooth_rate = 0.0
+                acc = 0.0
                 continue
 
-            acc += rate * 120 * TICK
+            acc += _smooth_rate * 120 * TICK
             hi = int(acc)
             if hi:
                 acc -= hi
@@ -760,6 +818,7 @@ def run(path):
     with lock:
         devices[path] = dev
         _write_state_nolock()          # publish the newly grabbed device for GUIs
+        _write_distance_nolock()       # idle distance document appears as soon as a device is grabbed (flag on)
     stop_ev = threading.Event()
     with lock:
         _read_stop[path] = stop_ev     # the supervisor signals release here — a flag is honored within one select timeout, where close() from another thread would not wake a blocked read (the old stale-grab bug)
@@ -830,6 +889,7 @@ def run(path):
                                         _lat["press_ts"] = None      # fallback session reports crossing->emit only (D8)
                             if held != held_before:                  # toggle tap engaged/disengaged the session -> publish active status
                                 _write_state_nolock()
+                                _write_distance_nolock()             # distance feed flips `active` without waiting for the next tick
                             continue                                 # toggle mode consumes every edge of this button (repeats included)
                         if ev.value == 1:                                # press -> this button becomes the active axis (LIFO)
                             if is_h:
@@ -861,6 +921,7 @@ def run(path):
                                     _lat["press_ts"] = None              # fallback session reports crossing->emit only (D8)
                         if held != held_before:                          # press/release engaged/disengaged the session -> publish active status
                             _write_state_nolock()
+                            _write_distance_nolock()                     # distance feed flips `active` without waiting for the next tick
                         continue
 
                     # [disabled-btn] swallows the disabled button (it never reaches the OS).
@@ -869,13 +930,14 @@ def run(path):
 
                     # BTN_LEFT edge tracking for drag-select; placed after the blocks above so a consumed/disabled
                     # left button can never arm it. The event is NOT consumed — press/release/repeat still pass through below,
-                    # so clicks behave exactly as before. A release mid-session resumes from a fresh origin (no rate jump).
+                    # so clicks behave exactly as before. A release mid-session resumes from a fresh origin by default
+                    # (no rate jump); LEFT_CLICK_RESET = false keeps the current distance instead — scrolling continues at its old speed.
                     if ev.type == e.EV_KEY and ev.code == e.BTN_LEFT:
                         if ev.value == 1:
                             btn_left_down = True
                         elif ev.value == 0:
                             btn_left_down = False
-                            if held:                     # fresh origin so the next movement scrolls from zero again
+                            if held and LEFT_CLICK_RESET:   # fresh origin so the next movement scrolls from zero again (LEFT_CLICK_RESET = false keeps the distance)
                                 offset = h_offset = 0
                                 acc_notch = 0
                                 ticker_reset = True
@@ -1028,6 +1090,7 @@ def main():
     global _state_writing
     _state_writing = True        # this process runs the daemon loop: state writes are allowed from here on
     _write_state()               # startup document (effective values, reload health) before any device is grabbed; no-op while STATE_FILE is off
+    _write_distance()            # idle distance document at startup when DISTANCE_FILE is on; no-op otherwise
     threading.Thread(target=ticker, daemon=True).start()
     threading.Thread(target=supervisor, daemon=True).start()
     threading.Event().wait()

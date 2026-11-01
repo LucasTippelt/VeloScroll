@@ -18,7 +18,7 @@ Then run the whole suite from the repo root:
 python3 -m pytest tests/ --tb=short        # everything (~30 s; the hot-reload e2e test is ~18 s of that)
 python3 -m pytest tests/test_daemon_scroll.py            # one file
 python3 -m pytest "tests/test_check_config.py::test_invalid_values"   # one (parameterized) test
-python3 -m pytest tests/ --collect-only -q               # list all 318 tests without running them
+python3 -m pytest tests/ --collect-only -q               # list all 355 tests without running them
 ```
 
 The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tests/ --tb=short` on ubuntu-latest after `pip install -r requirements-dev.txt`.
@@ -40,7 +40,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 - `test_device_match_valid` / `test_device_match_invalid` — DEVICE_MATCH accepts hex pairs, decimal pairs (comma or space separated), a `/…/…` path string and `none`; bare numbers, garbage and 3-token lines raise ConfigError
 - `test_button_keys_valid` / `test_button_keys_invalid` — button keys accept ecodes symbol names (`BTN_SIDE`) and decimals; `none` is allowed for DISABLED_BTN/SCROLL_BTN_H but rejected for SCROLL_BTN; unknown symbols are errors
 - `test_booleans_valid` / `test_booleans_invalid` — true/false/yes/no/on/off/1/0 case-insensitively; anything else (including empty and `2`) is an error
-- `test_toggle_scroll_h` — booleans plus `none` → None (runtime fallback to the vertical value)
+- `test_toggle_scroll_h`, `test_invert_h` — booleans plus `none` → None (runtime fallback to the vertical value; INVERT_H falls back to INVERT, TOGGLE_SCROLL_H to TOGGLE_SCROLL)
 - `test_log_level_valid` / `test_log_level_invalid` — integer 0..3 only
 - `test_h_float_keys` — each of the six `*_H` ramp keys accepts a number or `none`
 - `test_plain_floats` / `test_plain_floats_invalid` — DPI/TICK/rate/curve/smooth keys parse as float; malformed numbers are errors
@@ -56,7 +56,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 - `test_boundary_values_valid` — boundaries are inclusive where intended (MAX_RATE==MIN_RATE, OUT_SMOOTH=1.0)
 - `test_h_fallback_invalid` / `test_h_fallback_valid` — cross-axis checks use *effective* values after `_H` → vertical fallback
 - `test_button_identity` — SCROLL_BTN_H and DISABLED_BTN must differ from each other and from SCROLL_BTN
-- `test_type_checks` — strict types: real ints (bools rejected) for buttons, real bools for TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H/LATENCY_LOG
+- `test_type_checks` — strict types: real ints (bools rejected) for buttons, real bools for TOGGLE_SCROLL/TOGGLE_SCROLL_H/INVERT_H/VERTICAL_H/LEFT_CLICK_RESET/LATENCY_LOG
 - `test_device_match_valid_forms` / `test_device_match_invalid_forms` — pair/path/None rules; NAME_MATCH must be non-empty when DEVICE_MATCH is None
 - `test_log_level_type` — LOG_LEVEL range/type errors
 
@@ -110,6 +110,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 - `test_motion_inside_deadzone_emits_nothing` — sub-deadzone movement produces zero OS events
 - `test_offset_clamps_to_full` — accumulated offset never exceeds FULL counts (state read while the loop is live)
 - `test_invert_flips_direction`, `test_up_motion_emits_positive_wheel` — INVERT and sign of emitted wheel codes
+- `test_invert_h_falls_back_to_vertical_invert`, `test_invert_h_overrides_vertical` — INVERT_H fallback vs explicit override per axis (unset inverts both like INVERT; set flips only the H axis)
 - `test_h_mode_rel_x_emits_positive_hwheel` — held horizontal button: REL_X drives REL_HWHEEL with the same notch invariant
 - `test_vertical_h_mode_accumulates_rel_y_and_emits_vertical_wheel` — VERTICAL_H: up/down movement in H mode emits vertical wheel codes only, using the `_H` ramp values
 - `test_free_events_pass_through_held_rels_and_wheel_are_swallowed` — free state passes every REL and wheel event through verbatim; held state swallows REL_X/REL_Y (frozen cursor) while the model's own wheel events still go out; after release everything passes again — exact write-list equality
@@ -120,6 +121,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 - `test_drag_forwards_motion_and_pauses_velocity` — left held mid-session: REL movement and physical wheel pass through to the virtual cursor while velocity output stays paused; offset accumulation freezes at its clamped value (exact write-list equality)
 - `test_left_release_resumes_from_fresh_origin` — releasing left mid-session resets the origin: sub-deadzone movement afterwards emits nothing (without the reset, a FULL-scale offset would emit at max rate); also pins the quick-click edge case
 - `test_left_down_before_side_press_arms_drag_mode` — left pressed before the session starts arms drag mode immediately; every write is a passthrough with zero wheel emissions
+- `test_left_release_keeps_distance_when_reset_disabled` — LEFT_CLICK_RESET = false: releasing left keeps the FULL-scale distance, so movement afterwards continues scrolling at max rate (the mirror of the fresh-origin test)
 
 **`tests/test_daemon_toggle_dualaxis.py`** — toggle latches and dual-axis rules:
 - `test_toggle_latch_release_edge_and_repeat_are_noop` — a toggled button latches on press; release edges and key-repeat don't retrigger
@@ -147,7 +149,7 @@ The CI workflow `.github/workflows/test.yml` runs exactly `python3 -m pytest tes
 
 ### E2E tier (real programs as subprocesses)
 
-**`tests/test_startup_matrix.py`** — imports `veloscroll.py` in a fresh subprocess via `tests/probe_values.py`, which prints the effective values of all 27 daemon keys after the real startup block ran:
+**`tests/test_startup_matrix.py`** — imports `veloscroll.py` in a fresh subprocess via `tests/probe_values.py`, which prints the effective values of all 30 daemon keys after the real startup block ran:
 - `test_missing_file_pure_defaults` — no file → exactly the built-in defaults, no "config loaded" line
 - `test_partial_overlay_and_override_count` — a partial ini overlays only its keys and reports `(3 override(s))`
 - `test_malformed_value_exits_1`, `test_range_violation_from_check_config`, `test_malformed_ini_structure_exits_1` — parse errors, check_config errors and broken INI structure each exit 1 with the exact `config error: …` message before any device access

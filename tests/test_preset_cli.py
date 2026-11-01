@@ -29,11 +29,11 @@ def preset_dir(cfg):
     return os.path.join(os.path.dirname(str(cfg)), "presets")
 
 
-NEVER_APPLIED = ("MAX_BACKUPS", "STATE_FILE")   # per-machine operational state — never captured by save
+NEVER_APPLIED = ("MAX_BACKUPS", "STATE_FILE", "DISTANCE_FILE")   # per-machine operational state — never captured by save
 
 
 def saved_key_count(cfg_text):
-    """save captures every daemon key except *_H keys that are unset in config.ini and the never-applied keys (MAX_BACKUPS / STATE_FILE)."""
+    """save captures every daemon key except *_H keys that are unset in config.ini and the never-applied keys (MAX_BACKUPS / STATE_FILE / DISTANCE_FILE)."""
     present = re.findall(r"^(\w+)\s*=", cfg_text, re.M)
     return len([k for k in v.DAEMON_KEYS if not (k.endswith("_H") and k not in present) and k not in NEVER_APPLIED])
 
@@ -71,6 +71,32 @@ def test_save_changed_creates_backup(tmp_path):
     assert "backup     : " in r.stdout
     baks = [f for f in os.listdir(preset_dir(cfg)) if BAK_RE.match(f)]
     assert len(baks) == 1
+
+
+def test_delete_removes_preset_and_keeps_backups(tmp_path):
+    cfg = write_cfg(tmp_path)
+    assert run(cfg, "save", "fast").returncode == 0
+    cfg.write_text(BASE_CFG.replace("CURVE = 0.7", "CURVE = 0.9"), encoding="utf-8")   # changed config -> the re-save keeps a .bak- of v1
+    assert run(cfg, "save", "fast").returncode == 0
+
+    r = run(cfg, "delete", "fast")
+    assert r.returncode == 0, r.stdout + r.stderr
+    d = preset_dir(cfg)
+    assert not os.path.exists(os.path.join(d, "fast.ini"))
+    baks = [f for f in os.listdir(d) if BAK_RE.match(f)]
+    assert len(baks) == 1 and baks[0].startswith("fast.ini.bak-")
+    assert "1 backup(s) of it were kept" in r.stdout
+
+    # a deleted preset can be put back with restore
+    r = run(cfg, "restore", baks[0])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert os.path.exists(os.path.join(d, "fast.ini"))
+
+
+def test_delete_missing_preset_fails(tmp_path):
+    cfg = write_cfg(tmp_path)
+    r = run(cfg, "delete", "nosuch")
+    assert r.returncode == 1 and "no such preset: nosuch" in r.stderr
 
 
 def test_loadfeel_applies_only_its_group(tmp_path):

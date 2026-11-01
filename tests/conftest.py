@@ -6,7 +6,7 @@ calls sys.exit(1) on a broken config (veloscroll.py startup block). A missing fi
 yields pure code defaults, which every tier expects as the baseline state.
 
 All fixtures restore every daemon global afterwards — the module is deliberately
-global-heavy (27 config keys + derived counts + held-state), and tests must never
+global-heavy (30 config keys + derived counts + held-state), and tests must never
 leak state into each other.
 """
 import contextlib
@@ -39,6 +39,11 @@ _DEFAULT_STATE_ENV = os.path.join(tempfile.gettempdir(), f"veloscroll-pytest-{os
 assert not os.path.exists(_DEFAULT_STATE_ENV), "expected the default test state path to be absent"
 os.environ.setdefault("VELOSCROLL_STATE_FILE", _DEFAULT_STATE_ENV)
 
+# same guard for the distance file (DISTANCE_FILE = True)
+_DEFAULT_DISTANCE_ENV = os.path.join(tempfile.gettempdir(), f"veloscroll-pytest-{os.getpid()}-distance")
+assert not os.path.exists(_DEFAULT_DISTANCE_ENV), "expected the default test distance path to be absent"
+os.environ.setdefault("VELOSCROLL_DISTANCE_FILE", _DEFAULT_DISTANCE_ENV)
+
 
 # runtime globals that must be restored after every test (see veloscroll.py module state)
 _STATE_KEYS = (
@@ -47,6 +52,7 @@ _STATE_KEYS = (
     "_cfg_stat", "_cfg_load_info",
     "CONFIG_PATH",   # hot-reload/parse tests point it at tmp files; a leaked path must never outlive its test
     "_state_writing",   # the sim harness flips this on (like main()); unit tests must start from the fresh-import value
+    "_smooth_rate", "_dist_held_published",   # ticker-owned distance-feed state: a held session in one test must not leak into the next
 )
 
 

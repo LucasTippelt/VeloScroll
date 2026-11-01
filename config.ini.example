@@ -21,6 +21,8 @@ OUT_SMOOTH = 0.8
 ; 0..1 how quickly the rate follows the target (lower = smoother, higher = snappier).
 INVERT = False
 ; True/False: flip scroll direction (set true if your DE has "natural scrolling" enabled).
+LEFT_CLICK_RESET = True
+; What releasing BTN_LEFT does mid-session: true = fresh origin (the next movement scrolls from zero again); false = keep the current distance — scrolling continues at its old speed.
 
 ; --- feel --- horizontal ramp overrides (optional) ---------------------------------------
 
@@ -32,6 +34,8 @@ INVERT = False
 ;MAX_RATE_H = 90.0
 ;CURVE_H = 1.2
 ;OUT_SMOOTH_H = 0.7
+;INVERT_H = none
+; flip direction for the H axis only (true/false); `none` (default) falls back to INVERT like every other _H key.
 
 ; --- device selection ----------------------------------------------------------
 
@@ -96,3 +100,10 @@ STATE_FILE = False
 ; values, grabbed devices and scroll activity that GUI frontends read to show live state. Off by default
 ; (zero overhead without a GUI). Per-machine operational state like MAX_BACKUPS: never part of presets.
 ; The shipped veloscroll.service creates /run/veloscroll for this (RuntimeDirectory=veloscroll).
+
+DISTANCE_FILE = False
+; True/False: when true, the daemon writes /run/veloscroll/distance — a small JSON document with the live
+; per-axis distances (vertical + horizontal) and the smoothed rate of the active scroll session. Rewritten on
+; every ticker tick while a button is held (~250 Hz at TICK = 0.004), so GUI curve markers move smoothly;
+; nothing is written while idle except one final "inactive" document when a session ends. Off by default
+; (zero overhead without a consumer). Per-machine operational state like STATE_FILE: never part of presets.

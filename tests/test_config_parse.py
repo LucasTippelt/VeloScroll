@@ -58,6 +58,7 @@ def test_button_keys_invalid(vs, key, raw):
     ("INVERT", "true", True), ("INVERT", "YES", True), ("INVERT", "on", True), ("INVERT", "1", True),
     ("LATENCY_LOG", "false", False), ("TOGGLE_SCROLL", "No", False), ("TOGGLE_SCROLL", "off", False),
     ("TOGGLE_SCROLL", "0", False), ("VERTICAL_H", "True", True),
+    ("LEFT_CLICK_RESET", "true", True), ("LEFT_CLICK_RESET", "off", False),
 ])
 def test_booleans_valid(vs, key, raw, want):
     assert vs._parse_ini_value(key, raw) is want
@@ -65,6 +66,7 @@ def test_booleans_valid(vs, key, raw, want):
 
 @pytest.mark.parametrize("key,raw", [
     ("INVERT", "banana"), ("LATENCY_LOG", ""), ("TOGGLE_SCROLL", "2"),
+    ("LEFT_CLICK_RESET", "none"),      # plain boolean: 'none' is not a valid value here
 ])
 def test_booleans_invalid(vs, key, raw):
     with pytest.raises(vs.ConfigError):
@@ -78,6 +80,22 @@ def test_booleans_invalid(vs, key, raw):
 ])
 def test_toggle_scroll_h(vs, raw, want):
     assert vs._parse_ini_value("TOGGLE_SCROLL_H", raw) is want
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("none", None),      # unset -> fall back to INVERT at runtime
+    ("NONE", None),
+    ("true", True),
+    ("false", False),
+])
+def test_invert_h(vs, raw, want):
+    assert vs._parse_ini_value("INVERT_H", raw) is want
+
+
+@pytest.mark.parametrize("raw", ["banana", "", "2"])
+def test_invert_h_invalid(vs, raw):
+    with pytest.raises(vs.ConfigError):
+        vs._parse_ini_value("INVERT_H", raw)
 
 
 @pytest.mark.parametrize("raw,want", [("0", 0), ("3", 3)])

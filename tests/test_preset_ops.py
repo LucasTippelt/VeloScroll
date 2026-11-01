@@ -250,7 +250,7 @@ def test_resolve_missing_name_errors(tmp_path):
 # ---------------- PRESET_NEVER_APPLIED ----------------
 
 def test_never_applied_keys_are_daemon_keys_excluded_from_loadall(vs):
-    assert vp.PRESET_NEVER_APPLIED == ("MAX_BACKUPS", "STATE_FILE")   # per-machine operational state — set directly in config.ini
+    assert vp.PRESET_NEVER_APPLIED == ("MAX_BACKUPS", "STATE_FILE", "DISTANCE_FILE")   # per-machine operational state — set directly in config.ini
     for key in vp.PRESET_NEVER_APPLIED:
         assert key in vs.DAEMON_KEYS                    # must stay valid daemon keys...
         assert key in vp.LOADALL_EXCLUDED               # ...and loadall never applies them
@@ -263,7 +263,7 @@ def test_covering_cmds_group_keys_and_loadall(vs):
     assert vp._covering_cmds(["DEADZONE_IN", "FULL_IN_H"]) == ["loaddistances"]
     assert vp._covering_cmds(["SCROLL_BTN", "DISABLED_BTN"]) == ["loadkeys"]
     assert vp._covering_cmds(["NAME_MATCH", "DEVICE_MATCH", "DPI"]) == ["loaddevice"]
-    assert vp._covering_cmds(["TOGGLE_SCROLL", "VERTICAL_H"]) == ["loadscroll"]
-    for key in ("INVERT", "TICK", "LOG_LEVEL", "LATENCY_LOG"):   # outside every named group -> loadall
+    assert vp._covering_cmds(["TOGGLE_SCROLL", "VERTICAL_H", "LEFT_CLICK_RESET"]) == ["loadscroll"]
+    for key in ("INVERT", "INVERT_H", "TICK", "LOG_LEVEL", "LATENCY_LOG"):   # outside every named group -> loadall
         assert vp._covering_cmds([key]) == ["loadall"]
     assert vp._covering_cmds(["MAX_RATE", "INVERT"]) == ["loadfeel", "loadall"]

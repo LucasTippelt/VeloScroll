@@ -9,10 +9,11 @@
 1. [Commands](#commands)
 2. [Why loads are grouped](#why-loads-are-grouped)
 3. [Preset files and bundled presets](#preset-files-and-bundled-presets)
-4. [What `save` captures](#what-save-captures)
-5. [Backups and recovery](#backups-and-recovery)
-6. [Permissions](#permissions)
-7. [Shortcut switching (optional)](#shortcut-switching-optional)
+4. [Two vertical modes (use case)](#two-vertical-modes-use-case)
+5. [What `save` captures](#what-save-captures)
+6. [Backups and recovery](#backups-and-recovery)
+7. [Permissions](#permissions)
+8. [Shortcut switching (optional)](#shortcut-switching-optional)
 
 ---
 
@@ -29,8 +30,9 @@ Run them as `python3 /opt/veloscroll/veloscroll_preset.py <command> ...`.
 | `loadfeel <name>` | Apply only the 8 feel keys: `MAX_RATE` / `MIN_RATE` / `CURVE` / `OUT_SMOOTH` + their `_H` variants. |
 | `loadkeys <name>` | Apply the button bindings: `SCROLL_BTN` / `SCROLL_BTN_H` / `DISABLED_BTN`. |
 | `loaddevice <name>` | Apply the device selection keys: `NAME_MATCH` / `DEVICE_MATCH` / `DPI`. |
-| `loadscroll <name>` | Apply the scroll-mode flags: `TOGGLE_SCROLL` / `TOGGLE_SCROLL_H` / `VERTICAL_H`. |
+| `loadscroll <name>` | Apply the scroll-mode flags: `TOGGLE_SCROLL` / `TOGGLE_SCROLL_H` / `VERTICAL_H` / `LEFT_CLICK_RESET`. |
 | `loadall <name>` | Apply everything present **except** the button and device groups. |
+| `delete <name>` | Permanently remove `/etc/veloscroll/presets/<name>.ini`. Its `.bak-*` backups are kept — a deleted preset can be put back with `restore [BACKUP]`. |
 | `list` | Table of every preset's values (absent = not captured). Make sure your terminal is wide enough for the table to render properly. |
 | `backups` | Table of every `.bak-<timestamp>` backup, newest first. |
 | `restore [BACKUP]` | Put a backup back over its original (default: the newest `config.ini` backup). |
@@ -50,7 +52,7 @@ Each load command applies only its own group, so one kind of swap can't silently
 - The **distance keys** (`DEADZONE_IN` / `FULL_IN` + `_H`) describe your physical setup: how far you move the mouse.
 - The **button bindings** and **device selection** are per-machine choices.
 - A shared "fast" feel preset must not touch any of them, so routine swaps use `loadfeel`. Only an explicit `loaddistances` / `loadkeys` / `loaddevice` (or `loadall`, for the groups it covers) applies the others.
-- The **scroll-mode flags** (`TOGGLE_SCROLL` / `TOGGLE_SCROLL_H` / `VERTICAL_H`) are grouped the same way via `loadscroll`.
+- The **scroll-mode flags** (`TOGGLE_SCROLL` / `TOGGLE_SCROLL_H` / `VERTICAL_H` / `LEFT_CLICK_RESET`) are grouped the same way via `loadscroll`.
 
 A load that finds keys outside its group in the preset never applies them. It lists each one with the command that would, so a partial or older preset file works as-is.
 
@@ -74,6 +76,18 @@ sudo cp /opt/veloscroll/presets.example/*.ini /etc/veloscroll/presets/
 ```
 
 Partial and older preset files work as-is: a load only ever applies the keys that are actually present.
+
+---
+
+## Two vertical modes (use case)
+
+A common setup is two velocity scrolls on one mouse, both vertical: `SCROLL_BTN` for a slow-to-medium pace and `SCROLL_BTN_H` with `VERTICAL_H = true` for a medium-to-fast pace — e.g. fine reading on the main button, quick page jumps on the thumb button. The repo bundles it as the [`two-vertical`](../presets.example/two-vertical.ini) preset (Cruising values on the vertical axis, Fast values on the H axis):
+
+```bash
+sudo python3 /opt/veloscroll/veloscroll_preset.py loadall two-vertical
+```
+
+That applies `VERTICAL_H = true` plus both ramps in one step. The distance keys (`DEADZONE_IN` / `FULL_IN`) are not part of the preset — set them once per machine (see [TUNING.md](TUNING.md)). If you want a different pace split, edit the eight feel values in the preset file or build your own with `save`.
 
 ---
 

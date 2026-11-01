@@ -103,6 +103,8 @@ sudo cp /opt/veloscroll/veloscroll.service /etc/systemd/system/
 
 ### 8. Enable and start the service
 
+> **Strongly recommended safety net — do this before enabling the service:** set up [KDE Connect](https://kdeconnect.kde.org/) (or any similar remote-input app) on your phone so you can send mouse clicks/movement over your local metwork if VeloScroll ever misbehaves and you lose normal mouse control (there are safeguards against this but better to be safe than sorry). It makes fixing whatever went wrong much easier than rebooting blind — see the [README's safety-net section](../README.md#safety-net-keep-a-second-way-to-drive-your-mouse-strongly-recommended).
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now veloscroll
@@ -154,7 +156,7 @@ This is fine for normal mice. If a button you need reports outside 256–287 and
 - The cursor stays put.
 - Movement on the active axis is consumed for velocity math.
 - Wheel events from the physical mouse are swallowed.
-- Exception: holding `BTN_LEFT` during a session moves the cursor instead (click/drag works as usual, e.g. text selection); movement and wheel pass through, velocity output pauses while it is down, and releasing left resumes the session from the current position with a fresh origin.
+- Exception: holding `BTN_LEFT` during a session moves the cursor instead (click/drag works as usual, e.g. text selection); movement and wheel pass through, velocity output pauses while it is down, and releasing left resumes the session from the current position with a fresh origin — or keeps its distance and continues at the old speed when `LEFT_CLICK_RESET = false`.
 - Releasing the button (or tapping it off) restores normal behavior immediately.
 
 ### Using both scroll buttons

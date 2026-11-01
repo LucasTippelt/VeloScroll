@@ -4,7 +4,7 @@ Behavior pinned here is the *actual* product behavior: while any scroll button i
 events are swallowed by run() regardless of active axis (veloscroll.py — the cursor stays put in both v- and h-mode),
 and wheel events while held are dropped too — except while BTN_LEFT is also down (drag-select): then movement and
 physical wheel pass through to move the virtual cursor, velocity output pauses, and a left release resumes the
-session from a fresh origin."""
+session from a fresh origin (or keeps its distance when LEFT_CLICK_RESET = false)."""
 import time
 
 from evdev import ecodes as e
@@ -286,3 +286,70 @@ def test_left_down_before_side_press_arms_drag_mode(sim):
         ("ev", e.EV_REL, e.REL_X, 12),
         ("ev", e.EV_REL, e.REL_Y, -6),
     ]
+
+
+def test_left_release_keeps_distance_when_reset_disabled(sim):
+    ini = "[veloscroll]\nLEFT_CLICK_RESET = false\n"   # left release keeps the current distance instead of resetting it
+    with sim(ini) as s:
+        _press(s, e.BTN_SIDE)
+        push(s.dev, e.EV_REL, e.REL_Y, 9999)         # clamps to FULL=4000 -> steady max-rate emission...
+        time.sleep(0.35)
+
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 1)         # drag: cursor moves (passthrough), offset frozen at FULL...
+        push(s.dev, e.EV_REL, e.REL_Y, -24)          # ...velocity output paused
+        time.sleep(0.1)
+
+        push(s.dev, e.EV_KEY, e.BTN_LEFT, 0)         # left release -> distance kept (offset stays at FULL)...
+        time.sleep(0.05)                             # ...release passthrough lands; the rate is already zeroed by then
+        n = len(list(s.ui.writes))
+
+        push(s.dev, e.EV_REL, e.REL_Y, 16)           # normal hold mode again: swallowed for velocity math...
+        push(s.dev, e.EV_REL, e.REL_Y, 8)            # ...offset still sits at FULL -> emits at max rate (the fresh-origin test asserts the opposite)
+        time.sleep(0.35)
+
+    hi_total, _coarse = _wheel_totals(list(s.ui.writes)[n:], e.REL_WHEEL_HI_RES, e.REL_WHEEL)
+    assert hi_total < 0                              # scrolling continued at its old (max) speed after the left release
+
+
+# ---------------- INVERT_H (horizontal variant of INVERT) ----------------
+
+def test_invert_h_falls_back_to_vertical_invert(sim):
+    ini = "[veloscroll]\nSCROLL_BTN_H = BTN_EXTRA\nINVERT = true\n"   # INVERT_H unset -> falls back to INVERT, like every other _H key
+    with sim(ini) as s:
+        _press(s, e.BTN_SIDE)
+        push(s.dev, e.EV_REL, e.REL_Y, 480)          # down-movement in v-mode...
+        time.sleep(0.35)
+        _release(s, e.BTN_SIDE)
+
+        n = len(list(s.ui.writes))
+        hi_total, _coarse = _wheel_totals(list(s.ui.writes), e.REL_WHEEL_HI_RES, e.REL_WHEEL)
+        assert hi_total > 0                          # ...inverted to scroll up (INVERT applies)...
+
+        _press(s, e.BTN_EXTRA)                       # h-mode inherits the same inversion via the fallback...
+        push(s.dev, e.EV_REL, e.REL_X, 480)          # right-movement would normally emit positive REL_HWHEEL...
+        time.sleep(0.35)
+        _release(s, e.BTN_EXTRA)
+
+    hi_total, _coarse = _wheel_totals(list(s.ui.writes)[n:], e.REL_HWHEEL_HI_RES, e.REL_HWHEEL)
+    assert hi_total < 0                              # ...but INVERT (via the fallback) flips it negative
+
+
+def test_invert_h_overrides_vertical(sim):
+    ini = "[veloscroll]\nSCROLL_BTN_H = BTN_EXTRA\nINVERT_H = true\n"   # vertical stays un-inverted, only the H axis is flipped
+    with sim(ini) as s:
+        _press(s, e.BTN_SIDE)
+        push(s.dev, e.EV_REL, e.REL_Y, 480)          # down-movement in v-mode...
+        time.sleep(0.35)
+        _release(s, e.BTN_SIDE)
+
+        n = len(list(s.ui.writes))
+        hi_total, _coarse = _wheel_totals(list(s.ui.writes), e.REL_WHEEL_HI_RES, e.REL_WHEEL)
+        assert hi_total < 0                          # ...scrolls down as usual (INVERT_H does not touch the vertical axis)...
+
+        _press(s, e.BTN_EXTRA)                       # h-mode is inverted by INVERT_H...
+        push(s.dev, e.EV_REL, e.REL_X, 480)          # right-movement would normally emit positive REL_HWHEEL...
+        time.sleep(0.35)
+        _release(s, e.BTN_EXTRA)
+
+    hi_total, _coarse = _wheel_totals(list(s.ui.writes)[n:], e.REL_HWHEEL_HI_RES, e.REL_HWHEEL)
+    assert hi_total < 0                              # ...flipped negative by INVERT_H alone

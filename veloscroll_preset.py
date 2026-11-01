@@ -9,12 +9,12 @@
 # /etc/veloscroll/config.ini — a load is just an atomic, pre-validated rewrite of that
 # group's key lines (comments and ordering preserved), and the daemon hot-reloads within ~2 s:
 #
-#     veloscroll_preset.py save <name>         snapshot every daemon key except MAX_BACKUPS and STATE_FILE (both per-machine operational state) -> <config dir>/presets/<name>.ini (*_H keys only when set in config.ini)
+#     veloscroll_preset.py save <name>         snapshot every daemon key except MAX_BACKUPS, STATE_FILE and DISTANCE_FILE (all per-machine operational state) -> <config dir>/presets/<name>.ini (*_H keys only when set in config.ini)
 #     veloscroll_preset.py loaddistances <n>   apply the physical distance keys (DEADZONE_IN / FULL_IN + _H) present in the preset
 #     veloscroll_preset.py loadfeel <n>        apply only the 8 feel keys (MAX_RATE / MIN_RATE / CURVE / OUT_SMOOTH + their _H variants)
 #     veloscroll_preset.py loadkeys <n>        apply the button bindings (SCROLL_BTN / SCROLL_BTN_H / DISABLED_BTN)
 #     veloscroll_preset.py loaddevice <n>      apply the device selection keys (NAME_MATCH / DEVICE_MATCH / DPI)
-#     veloscroll_preset.py loadscroll <n>      apply the scroll-mode flags (TOGGLE_SCROLL / TOGGLE_SCROLL_H / VERTICAL_H)
+#     veloscroll_preset.py loadscroll <n>      apply the scroll-mode flags (TOGGLE_SCROLL / TOGGLE_SCROLL_H / VERTICAL_H / LEFT_CLICK_RESET)
 #     veloscroll_preset.py loadall <n>         apply everything present except the button and device groups
 #     veloscroll_preset.py list                table of every preset's values
 #     veloscroll_preset.py backups             table of every .bak-<timestamp> backup (config + presets), newest first
@@ -55,13 +55,13 @@ FEEL_KEYS = ("MAX_RATE", "MIN_RATE", "CURVE", "OUT_SMOOTH",
 DISTANCE_KEYS = ("DEADZONE_IN", "FULL_IN", "DEADZONE_IN_H", "FULL_IN_H")  # physical setup (mouse travel) — loaddistances
 KEY_KEYS = ("SCROLL_BTN", "SCROLL_BTN_H", "DISABLED_BTN")                 # button bindings — loadkeys
 DEVICE_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "DPI")                       # which device + its DPI — loaddevice
-SCROLL_MODE_KEYS = ("TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H")     # scroll-mode flags — loadscroll
+SCROLL_MODE_KEYS = ("TOGGLE_SCROLL", "TOGGLE_SCROLL_H", "VERTICAL_H", "LEFT_CLICK_RESET")   # scroll-mode flags — loadscroll
 
 LOAD_GROUPS = {"loaddistances": DISTANCE_KEYS, "loadfeel": FEEL_KEYS, "loadkeys": KEY_KEYS,
                "loaddevice": DEVICE_KEYS, "loadscroll": SCROLL_MODE_KEYS}  # command -> the keys it applies (canonical order)
 
-# Per-machine operational state — never part of a shareable preset profile: `save` skips these keys in the capture loop and every load command warns + ignores them when present in a hand-edited preset file. Set them directly in config.ini. MAX_BACKUPS = backup policy; STATE_FILE = GUI state-file switch (a running daemon's status, not a scroll profile).
-PRESET_NEVER_APPLIED = ("MAX_BACKUPS", "STATE_FILE")
+# Per-machine operational state — never part of a shareable preset profile: `save` skips these keys in the capture loop and every load command warns + ignores them when present in a hand-edited preset file. Set them directly in config.ini. MAX_BACKUPS = backup policy; STATE_FILE / DISTANCE_FILE = the two GUI state-file switches (a running daemon's status and live-position feed, not a scroll profile).
+PRESET_NEVER_APPLIED = ("MAX_BACKUPS", "STATE_FILE", "DISTANCE_FILE")
 
 LOADALL_EXCLUDED = set(KEY_KEYS) | set(DEVICE_KEYS) | set(PRESET_NEVER_APPLIED)   # `loadall` = every daemon key except these two groups and the never-applied keys
 
@@ -256,7 +256,7 @@ def cmd_save(vs, name):
         body.append(f"{key} = {_fmt(current[key])}")
 
     text = (f"# VeloScroll preset '{name}' — created by veloscroll_preset.py save "
-            f"(every daemon key except MAX_BACKUPS and STATE_FILE; *_H keys only when set in config.ini)\n"
+            f"(every daemon key except MAX_BACKUPS, STATE_FILE and DISTANCE_FILE; *_H keys only when set in config.ini)\n"
             f"[veloscroll]\n" + "\n".join(body) + "\n")
 
     try:
@@ -284,8 +284,25 @@ def cmd_save(vs, name):
     return 0
 
 
+def cmd_delete(vs, name):
+    """Permanently remove presets/<name>.ini. Its .bak-* backups are kept — a deleted preset can be put back with `restore`."""
+    preset_dir = _preset_dir(vs.CONFIG_PATH)
+    preset_path = os.path.join(preset_dir, name + ".ini")
+    if not os.path.isfile(preset_path):
+        raise PresetError(f"no such preset: {name} (see `veloscroll_preset.py list`)")
+    try:
+        os.remove(preset_path)
+    except OSError as exc:
+        raise PresetError(f"cannot delete {preset_path}: {exc}") from exc
+    print(f"deleted {preset_path}")
+    kept = [p for p in _backup_files(vs.CONFIG_PATH) if os.path.basename(p).startswith(name + ".ini.bak-")]
+    if kept:
+        print(f"{len(kept)} backup(s) of it were kept — put one back with `veloscroll_preset.py restore <name>` (see `backups`)")
+    return 0
+
+
 def _covering_cmds(skipped):
-    """The load commands that would apply each skipped key — canonical group order first, then `loadall` for keys outside every named group (INVERT/TICK/LOG_LEVEL/LATENCY_LOG)."""
+    """The load commands that would apply each skipped key — canonical group order first, then `loadall` for keys outside every named group (INVERT/INVERT_H/TICK/LOG_LEVEL/LATENCY_LOG)."""
     group_of = {}
     for cmd, keys in LOAD_GROUPS.items():
         for k in keys:
@@ -498,8 +515,8 @@ def _parse_ops(ops):
     pairs = []
     for i in range(0, len(ops), 2):
         cmd, name = ops[i], ops[i + 1]
-        if cmd not in LOAD_GROUPS and cmd not in ("save", "loadall"):
-            raise UsageError(f"unknown command {cmd!r} — use one of save/loaddistances/loadfeel/loadkeys/loaddevice/loadscroll/loadall (list/backups/restore run alone)")
+        if cmd not in LOAD_GROUPS and cmd not in ("save", "loadall", "delete"):
+            raise UsageError(f"unknown command {cmd!r} — use one of save/loaddistances/loadfeel/loadkeys/loaddevice/loadscroll/loadall/delete (list/backups/restore run alone)")
         if not NAME_RE.fullmatch(name):
             raise UsageError(f"invalid preset name {name!r} — use only letters, digits, '.', '_' or '-'")
         pairs.append((cmd, name))
@@ -509,12 +526,13 @@ def _parse_ops(ops):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="veloscroll_preset.py",
-        description="Named presets of the veloscroll daemon keys — `save` snapshots every key except MAX_BACKUPS and STATE_FILE (both per-machine operational state, set them in config.ini); each load command applies only its own group: loaddistances (DEADZONE_IN/FULL_IN + _H), loadfeel (the 8 rate/curve/smoothing feel keys), loadkeys (SCROLL_BTN/SCROLL_BTN_H/DISABLED_BTN), loaddevice (NAME_MATCH/DEVICE_MATCH/DPI), loadscroll (TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H) or loadall (everything except the key and device groups). "
+        description="Named presets of the veloscroll daemon keys — `save` snapshots every key except MAX_BACKUPS, STATE_FILE and DISTANCE_FILE (all per-machine operational state, set them in config.ini); each load command applies only its own group: loaddistances (DEADZONE_IN/FULL_IN + _H), loadfeel (the 8 rate/curve/smoothing feel keys), loadkeys (SCROLL_BTN/SCROLL_BTN_H/DISABLED_BTN), loaddevice (NAME_MATCH/DEVICE_MATCH/DPI), loadscroll (TOGGLE_SCROLL/TOGGLE_SCROLL_H/VERTICAL_H/LEFT_CLICK_RESET) or loadall (everything except the key and device groups); `delete NAME` permanently removes a preset (its .bak-* backups are kept and can be restored). "
                     "Any number of `COMMAND NAME` pairs run in one invocation, each with its own preset name, applied in order; list/backups/restore run alone.",
         epilog="examples:\n"
-                "  veloscroll_preset.py save fast                        snapshot every daemon key except MAX_BACKUPS and STATE_FILE -> presets/fast.ini\n"
+                "  veloscroll_preset.py save fast                        snapshot every daemon key except MAX_BACKUPS, STATE_FILE and DISTANCE_FILE -> presets/fast.ini\n"
                "  veloscroll_preset.py loadfeel fast                    apply only the feel keys of 'fast'\n"
                "  veloscroll_preset.py loadfeel a loaddistances b       multiple loads in one run, each with its own preset (applied in order)\n"
+               "  veloscroll_preset.py delete fast                      permanently remove presets/fast.ini (its backups are kept — `restore` can put it back)\n"
                "  veloscroll_preset.py list                             table of every preset's values\n"
                "  veloscroll_preset.py backups                          table of every .bak-<timestamp> backup, newest first\n"
                "  veloscroll_preset.py restore [BACKUP]                 put a backup back over its original (default: the newest config.ini backup)\n\n"
@@ -524,7 +542,7 @@ def main(argv=None):
                         help="path to config.ini (default: $VELOSCROLL_CONFIG or /etc/veloscroll/config.ini); "
                              "presets live in <config dir>/presets/")
     parser.add_argument("ops", nargs="+",
-                        metavar="{save,loaddistances,loadfeel,loadkeys,loaddevice,loadscroll,loadall} NAME | list | backups | restore [BACKUP]",
+                        metavar="{save,loaddistances,loadfeel,loadkeys,loaddevice,loadscroll,loadall,delete} NAME | list | backups | restore [BACKUP]",
                         help="operations to run: any number of `COMMAND NAME` pairs (each command with its own preset name), or one of the standalone commands list / backups / restore [BACKUP]")
     args = parser.parse_args(argv)
 
@@ -554,6 +572,8 @@ def main(argv=None):
             for cmd, name in payload:
                 if cmd == "save":
                     cmd_save(veloscroll, name)
+                elif cmd == "delete":
+                    cmd_delete(veloscroll, name)
                 elif cmd == "loadall":
                     _cmd_load(veloscroll, name, "loadall", tuple(k for k in veloscroll.DAEMON_KEYS if k not in LOADALL_EXCLUDED))
                 else:
