@@ -1,11 +1,13 @@
 # VeloScroll
 
 Variable-velocity scrolling for Linux mice: hold/click a button, move the mouse, and scroll at a speed proportional to how far you have moved from the press point.
-It has an entirely Opt-in Gui at https://github.com/LucasTippelt/VeloScroll-GUI. This GUI acts as a convenient Frontend to configure the core VeloScroll daemon. It writes to the config file and reads from the new Runtime files `/run/veloscroll/state` and `/run/veloscroll/distance`(these only get written when explicitly set to true in config.ini, false by default).
+**It has an entirely Opt-in Gui at https://github.com/LucasTippelt/VeloScroll-GUI.** This GUI acts as a convenient Frontend to configure the core VeloScroll daemon. It writes to the config file and reads from the new Runtime files `/run/veloscroll/state` and `/run/veloscroll/distance`(these only get written when explicitly set to true in config.ini, false by default).
 
 ## Documentation
 
-All guides live in [`docs/`](docs/). Suggested reading order:
+All command-line only guides live in [`docs/`](docs/).
+**You can either follow these or the README at https://github.com/LucasTippelt/VeloScroll-GUI.** That README covers the complete Installation of VeloScroll + VeloScroll GUI frontend, as well as Setup, Configuration and Preset management via the GUI.
+Suggested reading order:
 
 1. [Install](docs/INSTALL.md): install, find your device and button, run as a service
 2. [Configuration](docs/CONFIGURATION.md): every `config.ini` key and the tuning helper
