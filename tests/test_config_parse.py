@@ -186,6 +186,16 @@ def test_load_unknown_section_and_key_warn_but_apply(vs, tmp_path, monkeypatch, 
     assert "unknown section [other]" in out
 
 
+def test_load_gui_owned_keys_silently_ignored(vs, tmp_path, monkeypatch, capsys):
+    cfg = tmp_path / "config.ini"
+    cfg.write_text("[veloscroll]\nCURVE = 0.6\nSTARTUP_TAB = Presets\nTRAY_LED = True\nGHOST_CURSOR = False\nCURSOR_READOUT = True\n", encoding="utf-8")
+    monkeypatch.setattr(vs, "CONFIG_PATH", str(cfg))
+    values = vs.load_config()
+    assert values["CURVE"] == 0.6
+    out = capsys.readouterr().out
+    assert "unknown key" not in out             # GUI-owned keys are expected in the shared file — no warning
+
+
 def test_load_malformed_ini_structure(vs, tmp_path, monkeypatch):
     cfg = tmp_path / "config.ini"
     cfg.write_text("CURVE = 0.7\nno section header here\n", encoding="utf-8")

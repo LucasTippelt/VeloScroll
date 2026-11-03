@@ -19,9 +19,9 @@
 
 ## Commands
 
-Run them as `python3 /opt/veloscroll/veloscroll_preset.py <command> ...`.
+Run them as `python3 /usr/lib/veloscroll/veloscroll_preset.py <command> ...` — the deployed copy (see [Installation](INSTALL.md#installation) step 4), never the checkout: on a standard install these commands run as root.
 
-> On a standard install run these as root (`sudo`, or the scoped sudoers rule under [Permissions](#permissions)). With a per-user `VELOSCROLL_CONFIG`, no root is needed.
+> On a standard install run these as root (`sudo`, or the scoped sudoers rule under [Permissions](#permissions)). With a per-user `VELOSCROLL_CONFIG`, no root is needed — then any copy of the script works (the repo's included), since nothing elevated runs.
 
 | Command | Effect |
 |---------|--------|
@@ -40,7 +40,7 @@ Run them as `python3 /opt/veloscroll/veloscroll_preset.py <command> ...`.
 Any number of `COMMAND NAME` pairs run in one invocation, each with its own preset name, applied in order:
 
 ```bash
-sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast loaddistances quiet
+sudo python3 /usr/lib/veloscroll/veloscroll_preset.py loadfeel fast loaddistances quiet
 ```
 
 ---
@@ -59,7 +59,7 @@ A load that finds keys outside its group in the preset never applies them. It li
 You can chain multiple load groups and give each its own preset name, e.g.:
 
 ```bash
-sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast loaddistances quiet loaddevice MyPreset loadscroll MyPreset
+sudo python3 /usr/lib/veloscroll/veloscroll_preset.py loadfeel fast loaddistances quiet loaddevice MyPreset loadscroll MyPreset
 ```
 
 ---
@@ -84,7 +84,7 @@ Partial and older preset files work as-is: a load only ever applies the keys tha
 A common setup is two velocity scrolls on one mouse, both vertical: `SCROLL_BTN` for a slow-to-medium pace and `SCROLL_BTN_H` with `VERTICAL_H = true` for a medium-to-fast pace — e.g. fine reading on the main button, quick page jumps on the thumb button. The repo bundles it as the [`two-vertical`](../presets.example/two-vertical.ini) preset (Cruising values on the vertical axis, Fast values on the H axis):
 
 ```bash
-sudo python3 /opt/veloscroll/veloscroll_preset.py loadall two-vertical
+sudo python3 /usr/lib/veloscroll/veloscroll_preset.py loadall two-vertical
 ```
 
 That applies `VERTICAL_H = true` plus both ramps in one step. The distance keys (`DEADZONE_IN` / `FULL_IN`) are not part of the preset — set them once per machine (see [TUNING.md](TUNING.md)). If you want a different pace split, edit the eight feel values in the preset file or build your own with `save`.
@@ -122,12 +122,12 @@ Every restore backs up the current state first, so undoing is itself reversible 
 
 ```
 # /etc/sudoers.d/veloscroll-preset
-Cmnd_Alias VELOSCROLL_PRESET = /opt/veloscroll/veloscroll_preset.py
+Cmnd_Alias VELOSCROLL_PRESET = /usr/lib/veloscroll/veloscroll_preset.py
 <user> ALL=(root) NOPASSWD: VELOSCROLL_PRESET
 ```
 
 This grants root for that single command only (any of its subcommands). With a per-user `VELOSCROLL_CONFIG` setup the helper needs no root at all.
-**IMPORTANT** when using this, you need to add a shebang (#!) before python3, so: `#!/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py save YourPresetName` etc.
+**IMPORTANT** when using this, you need to add a shebang (#!) before python3, so: `#!/usr/bin/python3 /usr/lib/veloscroll/veloscroll_preset.py save YourPresetName` etc.
  
 ---
 
@@ -136,7 +136,7 @@ This grants root for that single command only (any of its subcommands). With a p
 Bind a preset load to anything you can bind, press it, then verify with `journalctl -u veloscroll`. For example, set the command (or a short bash script) to:
 
 ```bash
-/usr/bin/python3 /opt/veloscroll/veloscroll_preset.py loadfeel YourPresetName
+/usr/bin/python3 /usr/lib/veloscroll/veloscroll_preset.py loadfeel YourPresetName
 ```
 
 Test it manually once, then bind it to your preferred keyboard shortcut however your desktop environment implements that.

@@ -470,6 +470,8 @@ def cmd_restore(vs, ref=None):
         merged = _current_values(vs)
         unknown = []
         for key, raw in (cp["veloscroll"].items() if cp.has_section("veloscroll") else ()):
+            if key in vs.GUI_KEYS:
+                continue                        # GUI-owned keys pass through to the restored file untouched — expected, never a warning
             if key not in vs.DAEMON_KEYS:
                 unknown.append(key)
                 continue

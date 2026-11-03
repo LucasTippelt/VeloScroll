@@ -80,6 +80,7 @@ DAEMON_KEYS = ("NAME_MATCH", "DEVICE_MATCH", "SCROLL_BTN", "DISABLED_BTN", "SCRO
                  "CURVE", "DEADZONE_IN_H", "FULL_IN_H", "MIN_RATE_H", "MAX_RATE_H", "CURVE_H",
                    "OUT_SMOOTH_H", "OUT_SMOOTH", "INVERT", "INVERT_H", "TICK", "LOG_LEVEL", "LATENCY_LOG",
                    "MAX_BACKUPS", "STATE_FILE", "DISTANCE_FILE")
+GUI_KEYS = ("STARTUP_TAB", "CURSOR_READOUT", "GHOST_CURSOR", "TRAY_LED")   # GUI-owned keys the GUI writes into the shared config.ini (see veloscroll-gui); not daemon keys — skipped silently, never a warning
 _DEFAULTS = {k: globals()[k] for k in DAEMON_KEYS}   # the code defaults, captured before any .ini overlay; a key absent from the file always falls back to these
 
 
@@ -174,7 +175,8 @@ def _parse_ini_value(key, raw):
 def load_config():
     """All 30 daemon keys: the code defaults overlaid with non-empty config.ini values.
 
-    Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored.
+    Missing file -> pure defaults, no error. Unknown section/key -> warning line, ignored
+    (GUI-owned keys like STARTUP_TAB are skipped silently — the GUI writes them into this same file).
     Bad syntax -> all errors collected and raised as one ConfigError."""
     global _cfg_load_info
     values = dict(_DEFAULTS)
@@ -199,6 +201,8 @@ def load_config():
     n = 0
     if cp.has_section("veloscroll"):
         for key, raw in cp["veloscroll"].items():
+            if key in GUI_KEYS:
+                continue                        # GUI-owned key written by the GUI into the shared file — expected, never a warning
             if key not in DAEMON_KEYS:
                 _log(2, f"config warning: unknown key {key} in {CONFIG_PATH} — ignored")
                 continue

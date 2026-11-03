@@ -2,6 +2,31 @@
 
 All notable changes to VeloScroll are documented in this file.
 
+## [v1.4]
+
+Security hardening + copy-deploy model: **root never executes anything from the checkout.** Everything root-executed now lives in `/usr/lib/veloscroll` (root-owned 755); `/opt/veloscroll` is uniformly user-owned source, updated by git like everything else. New code reaches root only through an explicit deploy — the canonical block in [INSTALL.md](docs/INSTALL.md) or the GUI's one-click Update.
+
+### Changed
+
+#### Copy-deploy model (new install layout)
+
+- Deploy set: `veloscroll.py`, `veloscroll_preset.py`, `helpers/ListDeviceNames.py`, `helpers/ListButtonPresses.py`, `helpers/veloscroll_tuning_helper.py` → `/usr/lib/veloscroll/` (+ `helpers/`), root-owned 755. The block is idempotent and safe to re-run.
+- The checkout becomes user-owned (`sudo chown -R $USER:$USER /opt/veloscroll`) — sudo-free `git pull`, uniform source; copy-deploy is load-bearing for the privilege boundary (a pulled change can never reach root on its own).
+- All doc commands that run as root now point at `/usr/lib/veloscroll/...` (device discovery, button capture, preset CLI incl. the scoped sudoers rule, tuning helper); per-user `VELOSCROLL_CONFIG` setups are unchanged — nothing elevated runs there.
+- `helpers/veloscroll_seed.py` remains user-run in the repo (never elevated) and is not part of the deploy set.
+
+#### systemd unit (`veloscroll.service`)
+
+- `ExecStart` now runs the deployed copy: `/usr/bin/python3 /usr/lib/veloscroll/veloscroll.py`.
+- Four new sandbox directives, each test-gated on this machine's distro: `MemoryDenyWriteExecute=true` (no JIT/W+X mappings), `RestrictNamespaces=true` (the daemon never creates namespaces), `ProtectClock=true` (all timing is monotonic), `ProtectProc=invisible` (the daemon reads nothing from /proc). Existing exclusions (`SystemCallFilter`, `CapabilityBoundingSet`, `PrivateDevices`) stay unset per the unit's rationale, with comments updated to note the copy-deploy boundary.
+- Description → `Veloscroll v1.4 - velocity scrolling`.
+
+#### Documentation
+
+- INSTALL.md: new user-owned-checkout step and deploy block (before enabling the unit — otherwise it fails to start); device/button steps run the deployed helpers.
+- UPDATING.md: update = sudo-free pull → re-deploy (idempotent) → conditional unit refresh/restart; states explicitly that **the running daemon is always the deployed copy** after checking out any commit/tag; rollback includes the deploy block.
+- The per-desktop install guides (KDE Plasma, GNOME, Cinnamon) follow the same chown + deploy steps.
+
 ## [v1.3]
 
 This is the first release that includes the optional GUI at https://github.com/LucasTippelt/VeloScroll-GUI. As such, there are a bunch of minor changes to make integration seemless and some minor new features. As always, documentation has been updated.

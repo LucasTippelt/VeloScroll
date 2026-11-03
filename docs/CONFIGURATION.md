@@ -28,9 +28,9 @@ Keys with an `_H` suffix are horizontal variants. Where noted, an unset or `none
 | Key | Meaning / units | Tuning hint |
 |-----|-----------------|-------------|
 | `NAME_MATCH` | Case-insensitive substring of your mouse's name that selects it. Used only when `DEVICE_MATCH` is `None` (fallback). | Use a short unique fragment from the device list; if any other device shares it, prefer `DEVICE_MATCH`. Recommended if you want to pipe another virtual device into VeloScroll. |
-| `DEVICE_MATCH` | Recommended precise selector for a physical device; overrides `NAME_MATCH`. An exact USB ID pair (`0x46d, 0xc084`) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice. | Set it to your mouse's USB IDs: stable across reboots/ports, and lets per-device pointer rules apply automatically. See [Installation](INSTALL.md#installation), step 4. |
+| `DEVICE_MATCH` | Recommended precise selector for a physical device; overrides `NAME_MATCH`. An exact USB ID pair (`0x46d, 0xc084`) or a stable path string (e.g. `/dev/input/by-id/...`) for two identical mice. | Set it to your mouse's USB IDs: stable across reboots/ports, and lets per-device pointer rules apply automatically. See [Installation](INSTALL.md#installation), step 5. |
 | `DPI` | Your mouse's current DPI (counts/inch). Converts inches to raw counts. | Set it to your mouse's current DPI setting, not its maximum. |
-| `SCROLL_BTN` | Key code of the button to hold for scrolling (evdev name like `BTN_SIDE`, or decimal code, e.g. `275`). | Find it with `ListButtonPresses.py` (see [Installation](INSTALL.md#installation), step 5). Names are `evdev.ecodes.BTN_*`. |
+| `SCROLL_BTN` | Key code of the button to hold for scrolling (evdev name like `BTN_SIDE`, or decimal code, e.g. `275`). | Find it with `ListButtonPresses.py` (see [Installation](INSTALL.md#installation), step 6). Names are `evdev.ecodes.BTN_*`. |
 | `SCROLL_BTN_H` | Optional second button to hold for velocity scrolling. By default horizontal, driven by mouse X movement (emits `REL_HWHEEL`/`REL_HWHEEL_HI_RES`), using the vertical ramp unless overridden by the `_H` keys. With `VERTICAL_H = true` it emits vertical wheel events from up/down movement instead, at the same `_H`-key values. Evdev name or decimal code, or `none` to disable (default). | Must differ from `SCROLL_BTN` and `DISABLED_BTN`. `INVERT` flips both axes (`INVERT_H` overrides it for the H axis); see the hardware docs for direction notes. |
 | `DISABLED_BTN` | Key code that is swallowed and does nothing, or `none` to disable this feature. | Set `none` if you don't want to disable a button. |
 
@@ -125,7 +125,7 @@ With the daemon stopped, it exclusively grabs the configured mouse (all matching
 
 ```bash
 sudo systemctl stop veloscroll
-sudo python3 /opt/veloscroll/helpers/veloscroll_tuning_helper.py   # --config PATH for a per-user config
+sudo python3 /usr/lib/veloscroll/helpers/veloscroll_tuning_helper.py   # deployed copy (INSTALL step 4); with a per-user config (--config PATH) the repo's script works too, since nothing elevated runs
 # hold the scroll button and move; read the milestone + summary lines
 # set DEADZONE_IN / FULL_IN (+ _H) in /etc/veloscroll/config.ini to your liking
 # the helper also hot-reloads config.ini, so you can set -> test in one workflow

@@ -1,11 +1,12 @@
 [Unit]
-Description=Veloscroll v1.3.1 - velocity scrolling
+Description=Veloscroll v1.4 - velocity scrolling
 # stop crash-looping instead of restarting forever (5 failures / 60 s -> failed state)
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/veloscroll/veloscroll.py
+# the deployed copy, never the checkout — see docs/UPDATING.md ("the running daemon is always the deployed copy")
+ExecStart=/usr/bin/python3 /usr/lib/veloscroll/veloscroll.py
 Restart=on-failure
 RestartSec=1
 # --- sandboxing: the daemon only reads config.ini, opens /dev/input/* + /dev/uinput, and logs to stdout/journal ---
@@ -22,6 +23,14 @@ RestrictSUIDSGID=true
 LockPersonality=true
 # RestrictRealtime: daemon never sets realtime scheduling; 250 Hz ticker uses plain sleep
 RestrictRealtime=true
+# MemoryDenyWriteExecute: no JIT or writable+executable mappings — CPython only maps its own read-only code pages
+MemoryDenyWriteExecute=true
+# RestrictNamespaces: the daemon never creates namespaces (no unshare/CLONE_NEW*); also closes a sandbox-escape vector
+RestrictNamespaces=true
+# ProtectClock: all timing is monotonic (time.monotonic / perf_counter) — no wall-clock reads to protect against
+ProtectClock=true
+# ProtectProc=invisible: the daemon reads nothing from /proc; hiding it removes kernel-info reconnaissance
+ProtectProc=invisible
 # --- GUI state file (opt-in via STATE_FILE = True in config.ini) ---
 # /run/veloscroll/state is the JSON status snapshot for GUI frontends; RuntimeDirectory= creates it root-owned at unit start and removes it on stop, ReadWritePaths lifts exactly that dir out of ProtectSystem=strict
 RuntimeDirectory=veloscroll
@@ -32,6 +41,8 @@ Environment=VELOSCROLL_STATE_LIVE=1
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 # Deliberately NOT set: PrivateDevices (needs /dev/input/* + /dev/uinput), CapabilityBoundingSet
 # (CAP_EVDEV is required to grab devices as root), SystemCallFilter (too risky without per-distro validation).
+# The code itself comes from the deployed copy in /usr/lib/veloscroll (copy-deploy, see docs/UPDATING.md) —
+# the checkout at /opt/veloscroll is user-owned source and outside the privilege boundary.
 
 [Install]
 WantedBy=multi-user.target

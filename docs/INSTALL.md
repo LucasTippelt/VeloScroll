@@ -24,13 +24,16 @@ VeloScroll needs **Python 3 + evdev**. Install the distro package:
 
 **Fallback:** pip inside a virtualenv: `python3 -m venv <dir>`, activate it, then `pip install evdev`.
 
-### 2. Clone the project
+### 2. Clone the project and make it user-owned
 
-Clone the repository to a stable location:
+Clone the repository to a stable location, then take ownership of the checkout:
 
 ```bash
 sudo git clone https://github.com/LucasTippelt/VeloScroll /opt/veloscroll
+sudo chown -R $USER:$USER /opt/veloscroll
 ```
+
+The repo is uniformly user-writable source — **nothing root-executed lives in it** (see step 4). This keeps `git pull` sudo-free and means a pulled change can never reach root on its own: new code reaches the daemon only through an explicit deploy.
 
 ### 3. Create the config file
 
@@ -41,12 +44,29 @@ sudo cp /opt/veloscroll/config.ini.example /etc/veloscroll/config.ini
 
 All settings below go in `/etc/veloscroll/config.ini`, **not** in `veloscroll.py`.
 
-### 4. Find your device
+### 4. Deploy the root-executed files
+
+The daemon (and every helper you run with `sudo`) executes from a deployed copy in `/usr/lib/veloscroll` — never from the checkout. Copy the five elevated files there before anything else runs as root:
+
+```bash
+sudo mkdir -p /usr/lib/veloscroll/helpers
+sudo cp /opt/veloscroll/veloscroll.py /opt/veloscroll/veloscroll_preset.py /usr/lib/veloscroll/
+sudo cp /opt/veloscroll/helpers/ListDeviceNames.py \
+        /opt/veloscroll/helpers/ListButtonPresses.py \
+        /opt/veloscroll/helpers/veloscroll_tuning_helper.py /usr/lib/veloscroll/helpers/
+sudo chown -R root:root /usr/lib/veloscroll
+sudo chmod 755 /usr/lib/veloscroll /usr/lib/veloscroll/*.py \
+               /usr/lib/veloscroll/helpers /usr/lib/veloscroll/helpers/*.py
+```
+
+The block is idempotent — re-run it any time (it's the update flow in [Updating](UPDATING.md)). `helpers/veloscroll_seed.py` is deliberately not deployed: it always runs as your user, never elevated.
+
+### 5. Find your device
 
 List all input devices with their USB IDs:
 
 ```bash
-sudo python3 /opt/veloscroll/helpers/ListDeviceNames.py
+sudo python3 /usr/lib/veloscroll/helpers/ListDeviceNames.py
 ```
 
 Set `DEVICE_MATCH` to your mouse's USB ID pair (the last two columns of the list), and `DPI` to its current DPI:
@@ -62,12 +82,12 @@ This is **highly recommended**: it selects exactly one device (stable across reb
 - **Without Python:** `/sys/class/input/event*/device/name`, or `ls -l /dev/input/by-id` for stable symlinks with IDs.
 - **Two identical mice** share one USB ID pair. Use a stable path in `DEVICE_MATCH` instead: `/dev/input/by-id/usb-...-event-mouse` (only works if the device reports a serial number) or `/dev/input/by-path/pci-...-event-mouse` (pins the mouse to its USB port). If several devices match, they are **all** grabbed and share one virtual mouse, so holding the button on either drives scrolling from movement on either.
 
-### 5. Find your activation button
+### 6. Find your activation button
 
 Print every key event your device emits (movement and scroll events are filtered out; Ctrl-C to stop):
 
 ```bash
-sudo python3 /opt/veloscroll/helpers/ListButtonPresses.py XY
+sudo python3 /usr/lib/veloscroll/helpers/ListButtonPresses.py XY
 ```
 
 `XY` is your mouse's node number from the device list (a full path works too). Press every button once and verify that **no codes outside 256–287** are reported. If yes, you can skip the "Mice with non-standard buttons" and "Supported button code range" sections.
@@ -89,19 +109,21 @@ SCROLL_BTN = BTN_SIDE
 SCROLL_BTN = 275
 ```
 
-### 6. (Optional) Seed per-device pointer settings
+### 7. (Optional) Seed per-device pointer settings
 
 > **If you are unsure about this step, skip it.** It is not required.
 
-If your desktop environment has per-device pointer settings, seed them so that `veloscroll-mouse` starts out feeling exactly like your real mouse. Run the seed script (`veloscroll_seed.py`, [options](ADVANCED.md#veloscroll_seedpy-options)) **as your user, not root**, following your desktop environment's guide (see [Desktop environment pointer settings](#desktop-environment-pointer-settings)). If your desktop environment is not yet supported by `veloscroll_seed.py`, you will adjust the settings manually in step 9.
+If your desktop environment has per-device pointer settings, seed them so that `veloscroll-mouse` starts out feeling exactly like your real mouse. Run the seed script (`veloscroll_seed.py`, [options](ADVANCED.md#veloscroll_seedpy-options)) **as your user, not root**, following your desktop environment's guide (see [Desktop environment pointer settings](#desktop-environment-pointer-settings)). If your desktop environment is not yet supported by `veloscroll_seed.py`, you will adjust the settings manually in step 10.
 
-### 7. Install the systemd service
+### 8. Install the systemd service
+
+The unit executes the deployed copy from step 4 (`/usr/lib/veloscroll/veloscroll.py`), so that deploy must be in place before enabling — otherwise the unit fails to start:
 
 ```bash
 sudo cp /opt/veloscroll/veloscroll.service /etc/systemd/system/
 ```
 
-### 8. Enable and start the service
+### 9. Enable and start the service
 
 > **Strongly recommended safety net — do this before enabling the service:** set up [KDE Connect](https://kdeconnect.kde.org/) (or any similar remote-input app) on your phone so you can send mouse clicks/movement over your local metwork if VeloScroll ever misbehaves and you lose normal mouse control (there are safeguards against this but better to be safe than sorry). It makes fixing whatever went wrong much easier than rebooting blind — see the [README's safety-net section](../README.md#safety-net-keep-a-second-way-to-drive-your-mouse-strongly-recommended).
 
@@ -110,7 +132,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now veloscroll
 ```
 
-### 9. Verify
+### 10. Verify
 
 ```bash
 journalctl -u veloscroll
@@ -118,9 +140,9 @@ journalctl -u veloscroll
 
 You should see a line like `grabbed <path> <device name>`.
 
-If step 6 applied to you (your desktop has per-device pointer settings and seeding is not supported for it), open your system settings now and adjust the `veloscroll-mouse` pointer settings to your liking. This is a one-time setup; your desktop environment should save it.
+If step 7 applied to you (your desktop has per-device pointer settings and seeding is not supported for it), open your system settings now and adjust the `veloscroll-mouse` pointer settings to your liking. This is a one-time setup; your desktop environment should save it.
 
-### 10. Tweak your configuration
+### 11. Tweak your configuration
 
 Adjust `/etc/veloscroll/config.ini` to your preference. See the [`config.ini` keys reference](CONFIGURATION.md#configini-keys-hot-reloaded) (settings are **hot-reloaded**, so no systemctl restart is needed).
 

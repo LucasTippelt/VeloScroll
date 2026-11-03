@@ -1,6 +1,6 @@
 # TUNING — feel presets (starting points)
 
-Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`), organized by use case. To apply a preset, set those four keys in `/etc/veloscroll/config.ini`; changes hot-reload within ~2 s — verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key). Or apply one of the six bundled feel presets (`presets.example/{balanced,fast,precise,cruising,firefox,snappy}.ini`, copy into `/etc/veloscroll/presets/`) in one command — e.g. `sudo python3 /opt/veloscroll/veloscroll_preset.py loadfeel fast` (see README "Presets"). There is also one bundled *use-case* preset that configures both axes at once — [Two vertical modes](#two-vertical-modes). The bundled presets carry the four feel keys only, so your distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) stay per-user — to apply them from a preset, save one yourself with `save` (it captures every daemon key) and run `loaddistances <name>`.
+Starting points for the four "feel" keys (`MAX_RATE`, `MIN_RATE`, `CURVE`, `OUT_SMOOTH`), organized by use case. To apply a preset, set those four keys in `/etc/veloscroll/config.ini`; changes hot-reload within ~2 s — verify with `journalctl -u veloscroll` (a `config reloaded:` line shows old→new per key). Or apply one of the six bundled feel presets (`presets.example/{balanced,fast,precise,cruising,firefox,snappy}.ini`, copy into `/etc/veloscroll/presets/`) in one command — e.g. `sudo python3 /usr/lib/veloscroll/veloscroll_preset.py loadfeel fast` (the deployed copy — see [Installation](INSTALL.md#installation) step 4; with a per-user `VELOSCROLL_CONFIG` the repo's script works too, since nothing elevated runs). There is also one bundled *use-case* preset that configures both axes at once — [Two vertical modes](#two-vertical-modes). The bundled presets carry the four feel keys only, so your distance keys (`DEADZONE_IN`/`FULL_IN` + `_H`) stay per-user — to apply them from a preset, save one yourself with `save` (it captures every daemon key) and run `loaddistances <name>`.
 
 ## Presets
 
@@ -46,7 +46,7 @@ Two velocity scrolls on one mouse, both vertical: `SCROLL_BTN` at a slow-to-medi
 Unlike the feel cases above, this is a dual-axis setup: it sets both ramps plus `VERTICAL_H` in one file ([`presets.example/two-vertical.ini`](../presets.example/two-vertical.ini)), so apply it with `loadall`, not `loadfeel`:
 
 ```bash
-sudo python3 /opt/veloscroll/veloscroll_preset.py loadall two-vertical
+sudo python3 /usr/lib/veloscroll/veloscroll_preset.py loadall two-vertical
 ```
 
 The distance keys (`DEADZONE_IN`/`FULL_IN`) are deliberately not part of the preset — set them once per machine. To change the pace split, edit the eight feel values in the preset file or build your own with `save`. See [PRESETS.md](PRESETS.md#two-vertical-modes-use-case).

@@ -64,8 +64,8 @@ See the [Configuration Guide](docs/CONFIGURATION.md) for the full key reference.
 
 ### 🎛️ Preset and workflow tools
 
-- **Preset system (`veloscroll_preset.py`):** Save named snapshots of your configuration and load them back. Loads are grouped (`loadfeel`, `loaddistances`, `loadkeys`, `loaddevice`, `loadscroll`), so swapping a "feel" preset doesn't accidentally change your button bindings or device selection. Multiple load groups can be chained in one command. See [Presets](docs/PRESETS.md).
-- **Tuning assistant (`helpers/veloscroll_tuning_helper.py`):** With the daemon stopped, this script exclusively grabs your mouse and measures your actual hand movement. It prints an in-place distance gauge with the would-be target rate, helping you set `DEADZONE_IN` and `FULL_IN` from real distances instead of guesswork.
+- **Preset system (`veloscroll_preset.py`):** Save named snapshots of your configuration and load them back. Loads are grouped (`loadfeel`, `loaddistances`, `loadkeys`, `loaddevice`, `loadscroll`), so swapping a "feel" preset doesn't accidentally change your button bindings or device selection. Multiple load groups can be chained in one command. Root usage runs the deployed copy at `/usr/lib/veloscroll/veloscroll_preset.py`. See [Presets](docs/PRESETS.md).
+- **Tuning assistant (`helpers/veloscroll_tuning_helper.py`):** With the daemon stopped, this script exclusively grabs your mouse and measures your actual hand movement. It prints an in-place distance gauge with the would-be target rate, helping you set `DEADZONE_IN` and `FULL_IN` from real distances instead of guesswork. Root usage runs the deployed copy at `/usr/lib/veloscroll/helpers/veloscroll_tuning_helper.py`.
 - **Device discovery scripts (in `helpers/`):**
   - `ListDeviceNames.py`: lists all input devices with their USB IDs.
   - `ListButtonPresses.py`: prints every key event a device emits, so you can find the code for your activation button.
@@ -87,6 +87,6 @@ All helper scripts live in the [`helpers/`](helpers/) directory; only `veloscrol
 
 - **Latency logging:** Setting `LATENCY_LOG = true` emits per-second summary lines with measured latencies (input p50/p95/max, tick period, press→emit, crossing→emit, `uinput_write_max`) plus a theoretical model line at startup. See [Latency & debugging](docs/ADVANCED.md#latency--debugging).
 - **Log levels:** `LOG_LEVEL` (0–3) controls verbosity, from errors-only to debug.
-- **Systemd service:** Ships with `veloscroll.service`, a sandboxed root system unit for automatic restarts (hardened with protection directives and crash-loop start limits). Can also run standalone or as a per-user unit.
+- **Systemd service:** Ships with `veloscroll.service`, a sandboxed root system unit for automatic restarts (hardened with protection directives and crash-loop start limits). It executes the *deployed* copy in `/usr/lib/veloscroll` — never the checkout: the repo is uniformly user-owned source, and new code reaches root only through an explicit deploy ([Installation](docs/INSTALL.md#installation) step 4, [Updating](docs/UPDATING.md)). Can also run standalone or as a per-user unit.
 - **Hot-reload for device changes:** Switching mice requires no restart. The daemon applies the new `DEVICE_MATCH` within ~2 seconds and releases the old device automatically.
 - **Backup system:** The preset helper and seed script create `.bak-<timestamp>` backups. `MAX_BACKUPS` in `config.ini` (hot-reloaded) controls the policy: `-1` = unlimited, `N ≥ 1` = keep only the newest N per file family, `0` = backups disabled entirely (no backup files are written; existing ones stay untouched).
