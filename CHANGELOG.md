@@ -22,7 +22,7 @@ Security hardening + copy-deploy model: **root never executes anything from the 
 #### systemd unit (`veloscroll.service`)
 
 - `ExecStart` now runs the deployed copy: `/usr/bin/python3 /usr/lib/veloscroll/veloscroll.py`.
-- Four new sandbox directives, each test-gated on this machine's distro: `MemoryDenyWriteExecute=true` (no JIT/W+X mappings), `RestrictNamespaces=true` (the daemon never creates namespaces), `ProtectClock=true` (all timing is monotonic), `ProtectProc=invisible` (the daemon reads nothing from /proc). Existing exclusions (`SystemCallFilter`, `CapabilityBoundingSet`, `PrivateDevices`) stay unset per the unit's rationale, with comments updated to note the copy-deploy boundary.
+- Four new sandbox directives, each test-gated on my machine's distro (KDE Plasma/Wayland): `MemoryDenyWriteExecute=true` (no JIT/W+X mappings), `RestrictNamespaces=true` (the daemon never creates namespaces), `ProtectClock=true` (all timing is monotonic), `ProtectProc=invisible` (the daemon reads nothing from /proc). Existing exclusions (`SystemCallFilter`, `CapabilityBoundingSet`, `PrivateDevices`) stay unset per the unit's rationale, with comments updated to note the copy-deploy boundary.
 - Description → `Veloscroll v1.4 - velocity scrolling`.
 
 #### Documentation
