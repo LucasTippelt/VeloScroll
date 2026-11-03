@@ -2,7 +2,7 @@
 
 All notable changes to VeloScroll are documented in this file.
 
-## [v1.4]
+## [v1.4.0]
 
 Security hardening + copy-deploy model: **root never executes anything from the checkout.** Everything root-executed now lives in `/usr/lib/veloscroll` (root-owned 755); `/opt/veloscroll` is uniformly user-owned source, updated by git like everything else. New code reaches root only through an explicit deploy — the canonical block in [INSTALL.md](docs/INSTALL.md) or the GUI's one-click Update.
 
