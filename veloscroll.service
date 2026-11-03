@@ -1,5 +1,5 @@
 [Unit]
-Description=Veloscroll v1.4 - velocity scrolling
+Description=Veloscroll v2.0.0 - velocity scrolling
 # stop crash-looping instead of restarting forever (5 failures / 60 s -> failed state)
 StartLimitIntervalSec=60
 StartLimitBurst=5

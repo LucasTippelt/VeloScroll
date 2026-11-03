@@ -65,6 +65,7 @@ DISTANCE_FILE = False               # True: write /run/veloscroll/distance (live
 DE_WM = "kde-plasma"                # pointer-settings backend for veloscroll_seed.py; only "kde-plasma" supported so far
 VIRTUAL_NAME = "veloscroll-mouse"   # name of the virtual device, advertised with the real mouse's USB IDs (see sync_virtual_device)
 MAX_BACKUPS = 5                     # helper-script setting (veloscroll_preset.py + helpers/veloscroll_seed.py): max number of .bak-* backups to keep per file family (config.ini.bak-*, preset <name>.ini.bak-*, kcminputrc.bak-*); -1 = unlimited, N >= 1 = keep only the newest N after each run that writes a backup, 0 = backups disabled entirely (no .bak-* file is written by any helper run)
+DAEMON_VERSION = "2.0.0"            # release version published in the state/distance documents' `version` field; keep in sync with veloscroll.service's Description (see VERSIONING.md)
 
 
 # --- config.ini layer ---------------------------------------------------------
@@ -414,7 +415,7 @@ def _write_state_nolock():
         return list(v) if isinstance(v, tuple) else v       # DEVICE_MATCH pair -> [vendor, product]; None/bool/int/float pass through
 
     payload = {
-        "version": 1,
+        "version": DAEMON_VERSION,
         "pid": os.getpid(),
         "config_path": CONFIG_PATH,
         "config_mtime_ns": cfg_mtime_ns,
@@ -461,7 +462,7 @@ def _write_distance_nolock():
     if not DISTANCE_FILE or not _state_writing:
         return
     payload = {
-        "version": 1,
+        "version": DAEMON_VERSION,
         "pid": os.getpid(),
         "active": held,                       # a scroll session is engaged (held)
         "mode": mode if held else None,       # active axis while held ("v"/"h"); null when idle

@@ -2,6 +2,10 @@
 
 All notable changes to VeloScroll are documented in this file.
 
+## [v2.0.0]
+
+Versioning-scheme re-baseline (see VERSIONING.md): X now marks parity breaks with the GUI, Y new features/behavior changes in either component, Z bugfixes and doc updates. The only contract change: the `/run/veloscroll/state` + `/run/veloscroll/distance` documents' `version` field now carries the release version (`2.0.0`) instead of a fixed integer; otherwise unchanged from v1.4.x (copy-deploy model).
+
 ## [v1.4.0]
 
 Security hardening + copy-deploy model: **root never executes anything from the checkout.** Everything root-executed now lives in `/usr/lib/veloscroll` (root-owned 755); `/opt/veloscroll` is uniformly user-owned source, updated by git like everything else. New code reaches root only through an explicit deploy — the canonical block in [INSTALL.md](docs/INSTALL.md) or the GUI's one-click Update.

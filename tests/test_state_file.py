@@ -64,7 +64,7 @@ def test_startup_apply_writes_full_document(sim, tmp_path, monkeypatch):
     with sim(STATE_ON) as s:
         wait_until(lambda: os.path.exists(state))     # first document arrives on grab success (sim has no main(); it publishes the same full contract)
         data = _read(state)
-        assert data["version"] == 1
+        assert data["version"] == "2.0.0"
         assert data["pid"] == os.getpid()             # in-process daemon
         assert data["config_path"] == s.vs.CONFIG_PATH
         assert data["config_mtime_ns"] == os.stat(s.vs.CONFIG_PATH).st_mtime_ns
@@ -149,7 +149,7 @@ def test_distance_docs_track_both_axes_while_held(sim, tmp_path, monkeypatch):
         data = _read(dist)
         assert set(data) == {"version", "pid", "active", "mode",
                              "distance_in_v", "distance_in_h", "rate_nps", "ts"}   # the GUI's live curve markers read exactly these
-        assert data["version"] == 1 and data["pid"] == os.getpid()
+        assert data["version"] == "2.0.0" and data["pid"] == os.getpid()
         assert data["active"] is False and data["mode"] is None                     # idle at startup...
         assert data["distance_in_v"] == 0.0 and data["distance_in_h"] == 0.0
 
@@ -305,7 +305,7 @@ def test_write_state_serializes_contract_fields(vs, tmp_path):
         vs._write_state_nolock()              # call-site variant used while holding `lock`...
     vs._write_state()                         # ...and the locking wrapper for unlocked callers (e.g. reload rejects)
     data = json.loads(state.read_text(encoding="utf-8"))
-    assert data["version"] == 1 and data["pid"] == os.getpid()
+    assert data["version"] == "2.0.0" and data["pid"] == os.getpid()
     assert data["config_path"] == vs.CONFIG_PATH
     assert data["config_mtime_ns"] == 0       # the default test config path does not exist
     assert data["reload_ok"] is True and data["reload_error"] is None
